@@ -3,7 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "next dev"
+    "dev": "next dev",
+    "dev:backend": "cd ../backend && source .venv/bin/activate && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "dev:frontend": "next dev",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "next": "14.2.6",
@@ -13,6 +17,8 @@
   "devDependencies": {
     "@types/node": "^25.2.2",
     "@types/react": "^19.2.13",
-    "typescript": "^5.9.3"
+    "concurrently": "^9.1.0",
+    "typescript": "^5.9.3",
+    "@playwright/test": "^1.49.0"
   }
 }

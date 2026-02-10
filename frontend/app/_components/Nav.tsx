@@ -26,19 +26,36 @@ export default function Nav() {
   const path = usePathname();
   const [token, setToken] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
 
   useEffect(() => {
     setToken(typeof window !== "undefined" ? localStorage.getItem("token") : null);
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined" || process.env.NODE_ENV !== "development") return;
+    (window as unknown as { __whoBlocksNav?: () => { tag: string; id: string; class: string } | null }).__whoBlocksNav = () => {
+      const el = document.elementFromPoint(window.innerWidth - 30, 20);
+      return el ? { tag: el.tagName, id: el.id, class: el.className } : null;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!token) {
       setMe(null);
+      setAuthUnavailable(false);
       return;
     }
+    setAuthUnavailable(false);
     api("/api/me")
-      .then((data: Me) => setMe(data))
-      .catch(() => setMe(null));
+      .then((data: Me) => {
+        setMe(data);
+        setAuthUnavailable(false);
+      })
+      .catch(() => {
+        setMe(null);
+        setAuthUnavailable(true);
+      });
   }, [token]);
 
   const visibleSet = me?.visible_menu ? new Set(me.visible_menu) : null;
@@ -46,23 +63,21 @@ export default function Nav() {
     ? NAV_MENU_ITEMS.filter((item) => visibleSet.has(item.key))
     : NAV_MENU_ITEMS;
 
-  const link = (href: string, label: string) => (
-    <Link
-      href={href}
-      style={{
-        padding: "8px 14px",
-        borderRadius: 999,
-        fontWeight: 500,
-        background: path?.startsWith(href) ? "#e5e5e7" : "transparent",
-        textDecoration: "none",
-        color: "#1d1d1f",
-      }}
-    >
-      {label}
-    </Link>
-  );
-
   return (
+    <>
+      {authUnavailable && (
+        <div
+          style={{
+            background: "#f59e0b",
+            color: "#000",
+            padding: "8px 16px",
+            textAlign: "center",
+            fontSize: 13,
+          }}
+        >
+          Backend/auth unavailable – menu items hidden. Start backend on :8000 and log in.
+        </div>
+      )}
     <div
       style={{
         background: "rgba(255,255,255,0.8)",
@@ -77,7 +92,22 @@ export default function Nav() {
         alignItems: "center",
       }}
     >
-      {navItems.map((item) => link(item.href, item.label))}
+      {navItems.map((item) => (
+        <Link
+          key={item.key}
+          href={item.href}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 999,
+            fontWeight: 500,
+            background: path?.startsWith(item.href) ? "#e5e5e7" : "transparent",
+            textDecoration: "none",
+            color: "#1d1d1f",
+          }}
+        >
+          {item.label}
+        </Link>
+      ))}
 
       <div style={{ marginLeft: "auto", display: "flex", gap: 14, alignItems: "center" }}>
         {token && (visibleSet == null || visibleSet.has("admin")) && (
@@ -119,5 +149,6 @@ export default function Nav() {
         )}
       </div>
     </div>
+    </>
   );
 }

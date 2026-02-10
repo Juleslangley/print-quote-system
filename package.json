@@ -1,0 +1,8 @@
+{
+  "name": "print-quote-system",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd backend && source .venv/bin/activate && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "dev:frontend": "cd frontend && npm run dev"
+  }
+}

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../../lib/api";
+import Modal from "../../_components/Modal";
 
 type Material = any;
 
@@ -19,59 +20,6 @@ type MaterialSize = {
 function num(v: any, fallback = 0) {
   const x = typeof v === "number" ? v : parseFloat(String(v ?? ""));
   return Number.isFinite(x) ? x : fallback;
-}
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-  zIndex = 9999,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-  zIndex?: number;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: "min(900px, 100%)",
-          maxHeight: "90vh",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18, overflow: "auto", flex: 1 }}>{children}</div>
-      </div>
-    </div>
-  );
 }
 
 export default function AdminMaterialsPage() {
@@ -429,8 +377,8 @@ export default function AdminMaterialsPage() {
           <div className="subtle">Manage materials (sheet and roll) used in templates and pricing.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={load}>Refresh</button>
-          <button className="primary" onClick={openCreate}>New Material</button>
+          <button type="button" onClick={load}>Refresh</button>
+          <button type="button" className="primary" onClick={openCreate}>New Material</button>
         </div>
       </div>
 
@@ -472,7 +420,7 @@ export default function AdminMaterialsPage() {
               <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} />
               Active only
             </label>
-            <button onClick={load}>Refresh</button>
+            <button type="button" onClick={load}>Refresh</button>
           </div>
         </div>
       </div>
@@ -526,7 +474,7 @@ export default function AdminMaterialsPage() {
                       style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
                       onDoubleClick={(e) => e.stopPropagation()}
                     >
-                      <button onClick={() => openEdit(m)} onDoubleClick={(e) => e.stopPropagation()}>
+                      <button type="button" onClick={() => openEdit(m)} onDoubleClick={(e) => e.stopPropagation()}>
                         Edit
                       </button>
                     </div>
@@ -543,8 +491,15 @@ export default function AdminMaterialsPage() {
         open={modalOpen}
         title={editing ? "Edit Material" : "New Material"}
         onClose={closeModal}
+        wide
       >
-        <div style={{ display: "grid", gap: 16 }}>
+        <form
+          style={{ display: "grid", gap: 16 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveMaterial();
+          }}
+        >
           {editing && !editing.active && (
             <div
               style={{
@@ -786,10 +741,11 @@ export default function AdminMaterialsPage() {
             <div style={{ display: "flex", gap: 10 }}>
               {editing && (
                 <>
-                  <button onClick={handleToggleActiveInModal}>
+                  <button type="button" onClick={handleToggleActiveInModal}>
                     {editing.active ? "Deactivate" : "Activate"}
                   </button>
                   <button
+                    type="button"
                     className="danger"
                     onClick={handleDeleteInModal}
                     disabled={inUse}
@@ -801,13 +757,22 @@ export default function AdminMaterialsPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={closeModal}>Cancel</button>
-              <button className="primary" onClick={saveMaterial} disabled={!name.trim()}>
+              <button type="button" onClick={closeModal}>Cancel</button>
+              <button
+                type="button"
+                className="primary"
+                disabled={!name.trim()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  saveMaterial();
+                }}
+              >
                 {editing ? "Save changes" : "Create material"}
               </button>
             </div>
           </div>
-        </div>
+        </form>
       </Modal>
 
       <Modal

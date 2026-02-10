@@ -89,8 +89,8 @@ export default function AdminOperationsPage() {
           <label>rate_type <input value={rateType} onChange={(e) => setRateType(e.target.value)} /></label>
           <label>calc_model <input value={calcModel} onChange={(e) => setCalcModel(e.target.value)} /></label>
           <label>params (JSON) <textarea value={paramsJson} onChange={(e) => setParamsJson(e.target.value)} rows={4} /></label>
-          <button onClick={createOp}>Create</button>
-          <button onClick={load}>Refresh</button>
+          <button type="button" onClick={createOp}>Create</button>
+          <button type="button" onClick={load}>Refresh</button>
         </div>
       </div>
 
@@ -106,9 +106,9 @@ export default function AdminOperationsPage() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => toggleActive(op)}>{op.active ? "Deactivate" : "Activate"}</button>
-                <button onClick={() => editOp(op)}>Edit params</button>
-                <button onClick={() => deleteOp(op)}>Delete</button>
+                <button type="button" onClick={() => toggleActive(op)}>{op.active ? "Deactivate" : "Activate"}</button>
+                <button type="button" onClick={() => editOp(op)}>Edit params</button>
+                <button type="button" onClick={() => deleteOp(op)}>Delete</button>
               </div>
             </div>
 

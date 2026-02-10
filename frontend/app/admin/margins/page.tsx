@@ -100,8 +100,8 @@ export default function AdminMarginsPage() {
           <label>Min margin (0-1) <input type="number" step="0.01" value={minMargin} onChange={(e) => setMinMargin(parseFloat(e.target.value || "0"))} /></label>
           <label>Min sell (£) <input type="number" step="0.01" value={minSell} onChange={(e) => setMinSell(parseFloat(e.target.value || "0"))} /></label>
           <label>Rounding (JSON) <textarea rows={3} value={roundingJson} onChange={(e) => setRoundingJson(e.target.value)} /></label>
-          <button onClick={createProfile}>Create</button>
-          <button onClick={load}>Refresh</button>
+          <button type="button" onClick={createProfile}>Create</button>
+          <button type="button" onClick={load}>Refresh</button>
         </div>
       </div>
 
@@ -117,9 +117,9 @@ export default function AdminMarginsPage() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => toggleActive(p)}>{p.active ? "Deactivate" : "Activate"}</button>
-                <button onClick={() => editProfile(p)}>Edit JSON</button>
-                <button onClick={() => deleteProfile(p)}>Delete</button>
+                <button type="button" onClick={() => toggleActive(p)}>{p.active ? "Deactivate" : "Activate"}</button>
+                <button type="button" onClick={() => editProfile(p)}>Edit JSON</button>
+                <button type="button" onClick={() => deleteProfile(p)}>Delete</button>
               </div>
             </div>
 

@@ -21,9 +21,10 @@ export default function Home() {
     const out = await api("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
-    });
-    localStorage.setItem("token", out.access_token);
-    setMsg("Logged in.");
+    }) as { access_token?: string };
+    const token = out?.access_token;
+    if (token) localStorage.setItem("token", token);
+    setMsg(token ? "Logged in." : "Login failed (no token).");
   }
 
   return (

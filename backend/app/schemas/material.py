@@ -10,7 +10,7 @@ class MaterialCreate(BaseModel):
     # legacy string supplier (keep)
     supplier: str = ""
 
-    # NEW: FK supplier id
+    # FK supplier id (optional)
     supplier_id: Optional[str] = None
 
     cost_per_sheet_gbp: Optional[float] = None

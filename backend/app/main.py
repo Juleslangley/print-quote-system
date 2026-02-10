@@ -1,21 +1,36 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from app.core.db import Base, engine
 import app.models  # noqa: F401 - register all tables
 from app.api import auth, customers, materials, material_sizes, rates, templates, quotes, seed, machines, machine_rates, operations, template_admin
 from app.api import customer_contacts, customer_contact_methods, users
-from app.api import margin_profiles, pricing_rules, suppliers, purchase_orders, purchase_order_lines, supplier_invoices
+from app.api import margin_profiles, pricing_rules, suppliers, purchase_orders, purchase_order_lines, backup, health
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Print Quote System", version="0.1.0")
 
 
-@app.get("/api/health")
-def health():
-    return {"ok": True}
+@app.on_event("startup")
+async def startup_log():
+    print("✅ Backend running at http://127.0.0.1:8000")
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return 500 with error detail so the frontend can show it (e.g. DB connection errors)."""
+    from fastapi import HTTPException
+    if isinstance(exc, HTTPException):
+        raise exc
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
 
 # Allow frontend from common dev origins (any port on localhost / 127.0.0.1)
 _cors_origins = [
@@ -39,7 +54,7 @@ Base.metadata.create_all(bind=engine)
 
 # Optional: add columns to existing tables (dev-safe; skip if tables/columns already exist)
 try:
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("ALTER TABLE materials ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'"))
         conn.execute(text("ALTER TABLE materials ADD COLUMN IF NOT EXISTS supplier_id VARCHAR REFERENCES suppliers(id)"))
         conn.execute(text("ALTER TABLE materials ADD COLUMN IF NOT EXISTS nominal_code VARCHAR DEFAULT ''"))
@@ -91,12 +106,12 @@ try:
             ("updated_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
         ]:
             conn.execute(text(f"ALTER TABLE machines ADD COLUMN IF NOT EXISTS {col} {col_type}"))
-        conn.commit()
 except Exception as e:
     logger.warning("Startup ALTERs skipped (non-fatal): %s", e)
 # Note: No Alembic in this project. For dev, ALTERs above add new columns; create_all() creates new tables (e.g. customer_contact_methods).
 # To reset dev DB: drop and recreate the database, then restart the app so create_all() runs.
 
+app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(seed.router, prefix="/api", tags=["seed"])
@@ -108,7 +123,6 @@ app.include_router(material_sizes.router, prefix="/api", tags=["material-sizes"]
 app.include_router(suppliers.router, prefix="/api", tags=["suppliers"])
 app.include_router(purchase_orders.router, prefix="/api", tags=["purchase-orders"])
 app.include_router(purchase_order_lines.router, prefix="/api", tags=["purchase-order-lines"])
-app.include_router(supplier_invoices.router, prefix="/api", tags=["supplier-invoices"])
 app.include_router(rates.router, prefix="/api", tags=["rates"])
 app.include_router(margin_profiles.router, prefix="/api", tags=["margin-profiles"])
 app.include_router(pricing_rules.router, prefix="/api", tags=["pricing-rules"])
@@ -118,3 +132,4 @@ app.include_router(operations.router, prefix="/api", tags=["operations"])
 app.include_router(templates.router, prefix="/api", tags=["templates"])
 app.include_router(template_admin.router, prefix="/api", tags=["template-admin"])
 app.include_router(quotes.router, prefix="/api", tags=["quotes"])
+app.include_router(backup.router, prefix="/api", tags=["backup"])

@@ -99,9 +99,16 @@ def list_material_sizes(material_id: str, db: Session = Depends(get_db), _=Depen
 
 @router.post("/materials", response_model=MaterialOut)
 def create_material(payload: MaterialCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    m = Material(id=new_id(), **payload.model_dump())
+    data = payload.model_dump(exclude={"supplier"})
+    m = Material(id=new_id(), **data)
+    if payload.supplier_id:
+        sup = db.query(Supplier).filter(Supplier.id == payload.supplier_id).first()
+        if not sup:
+            raise HTTPException(status_code=400, detail="Invalid supplier_id")
     _sync_material_supplier(m, db)
-    db.add(m); db.commit(); db.refresh(m)
+    db.add(m)
+    db.commit()
+    db.refresh(m)
     return m
 
 @router.put("/materials/{material_id}", response_model=MaterialOut)
@@ -110,13 +117,21 @@ def update_material(material_id: str, payload: MaterialUpdate, db: Session = Dep
     if not m:
         raise HTTPException(status_code=404, detail="Material not found")
     data = payload.model_dump(exclude_unset=True)
+    if "supplier_id" in data and data["supplier_id"] is not None:
+        sup = db.query(Supplier).filter(Supplier.id == data["supplier_id"]).first()
+        if not sup:
+            raise HTTPException(status_code=400, detail="Invalid supplier_id")
     for k, v in data.items():
+        if k == "supplier":
+            continue
         setattr(m, k, v)
         if k == "meta" and v is not None:
             attributes.flag_modified(m, "meta")
     if "supplier_id" in data:
         _sync_material_supplier(m, db)
-    db.add(m); db.commit(); db.refresh(m)
+    db.add(m)
+    db.commit()
+    db.refresh(m)
     return m
 
 @router.delete("/materials/{material_id}")

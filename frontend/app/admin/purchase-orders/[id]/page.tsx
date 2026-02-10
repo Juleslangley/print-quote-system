@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "../../../../lib/api";
+import Modal from "../../../_components/Modal";
 
 type PO = {
   id: string;
@@ -36,59 +37,6 @@ type POLine = {
 
 type Material = { id: string; name: string; type: string; supplier_id: string | null; supplier_product_code?: string; cost_per_sheet_gbp?: number | null; cost_per_lm_gbp?: number | null };
 type MaterialSize = { id: string; material_id: string; label: string; width_mm: number; height_mm: number; cost_per_sheet_gbp: number | null };
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-  wide,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-  wide?: boolean;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex: 9999,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: wide ? "min(640px, 100%)" : "min(480px, 100%)",
-          maxHeight: "90vh",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18, overflow: "auto", flex: 1 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
 
 export default function PurchaseOrderDetailPage() {
   const params = useParams();

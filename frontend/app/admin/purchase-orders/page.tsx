@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../../lib/api";
+import Modal from "../../_components/Modal";
 
 type PO = {
   id: string;
@@ -12,54 +13,6 @@ type PO = {
   order_date: string | null;
   total_gbp: number;
 };
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex: 9999,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: "min(420px, 100%)",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
 
 export default function AdminPurchaseOrdersPage() {
   const router = useRouter();
@@ -131,8 +84,8 @@ export default function AdminPurchaseOrdersPage() {
           <div className="subtle">Create and manage purchase orders to suppliers.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={load}>Refresh</button>
-          <button className="primary" onClick={() => { setNewPOModalOpen(true); loadSuppliers(); }}>New PO</button>
+          <button type="button" onClick={load}>Refresh</button>
+          <button type="button" className="primary" onClick={() => { setNewPOModalOpen(true); loadSuppliers(); }}>New PO</button>
         </div>
       </div>
 
@@ -212,7 +165,7 @@ export default function AdminPurchaseOrdersPage() {
                   </td>
                   <td style={{ padding: "12px 10px" }}>£{po.total_gbp?.toFixed(2) ?? "0.00"}</td>
                   <td style={{ padding: "12px 10px", borderTopRightRadius: 12, borderBottomRightRadius: 12 }}>
-                    <button onClick={() => router.push(`/admin/purchase-orders/${po.id}`)}>Open</button>
+                    <button type="button" onClick={() => router.push(`/admin/purchase-orders/${po.id}`)}>Open</button>
                   </td>
                 </tr>
               ))}
@@ -239,8 +192,8 @@ export default function AdminPurchaseOrdersPage() {
           </div>
           {err && newPOModalOpen && <div style={{ color: "#c00", fontSize: 14 }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => setNewPOModalOpen(false)}>Cancel</button>
-            <button className="primary" onClick={createNewPO} disabled={!newPOSupplierId}>Create draft</button>
+            <button type="button" onClick={() => setNewPOModalOpen(false)}>Cancel</button>
+            <button type="button" className="primary" onClick={createNewPO} disabled={!newPOSupplierId}>Create draft</button>
           </div>
         </div>
       </Modal>

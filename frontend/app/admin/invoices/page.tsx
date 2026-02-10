@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../../lib/api";
+import Modal from "../../_components/Modal";
 
 type SupplierInvoice = {
   id: string;
@@ -29,59 +30,6 @@ type Candidate = {
   score: number;
   reason: string;
 };
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-  zIndex = 9999,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-  zIndex?: number;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: "min(900px, 100%)",
-          maxHeight: "90vh",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18, overflow: "auto", flex: 1 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
 
 function num(v: any, fallback = 0) {
   const x = typeof v === "number" ? v : parseFloat(String(v ?? ""));
@@ -260,8 +208,8 @@ export default function AdminInvoicesPage() {
           <div className="subtle">Upload invoices and match them to purchase orders.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={load}>Refresh</button>
-          <button className="primary" onClick={openUploadModal}>Upload Invoice</button>
+          <button type="button" onClick={load}>Refresh</button>
+          <button type="button" className="primary" onClick={openUploadModal}>Upload Invoice</button>
         </div>
       </div>
 
@@ -348,7 +296,7 @@ export default function AdminInvoicesPage() {
                   </td>
                   <td style={{ padding: "12px 10px", borderTopRightRadius: 12, borderBottomRightRadius: 12 }}>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }} onDoubleClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => openDetail(inv)}>Open</button>
+                      <button type="button" onClick={() => openDetail(inv)}>Open</button>
                     </div>
                   </td>
                 </tr>
@@ -360,7 +308,7 @@ export default function AdminInvoicesPage() {
       </div>
 
       {/* Upload Modal */}
-      <Modal open={uploadModalOpen} title="Upload Invoice" onClose={() => setUploadModalOpen(false)}>
+      <Modal open={uploadModalOpen} title="Upload Invoice" onClose={() => setUploadModalOpen(false)} wide>
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
             <div className="col">
@@ -442,8 +390,8 @@ export default function AdminInvoicesPage() {
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
-            <button onClick={() => setUploadModalOpen(false)}>Cancel</button>
-            <button className="primary" onClick={submitUpload} disabled={!uploadFile || !uploadSupplierId}>
+            <button type="button" onClick={() => setUploadModalOpen(false)}>Cancel</button>
+            <button type="button" className="primary" onClick={submitUpload} disabled={!uploadFile || !uploadSupplierId}>
               Upload
             </button>
           </div>
@@ -455,6 +403,7 @@ export default function AdminInvoicesPage() {
         open={detailModalOpen}
         title={selectedInvoice ? `Invoice ${selectedInvoice.invoice_number || selectedInvoice.id}` : "Invoice"}
         onClose={() => { setDetailModalOpen(false); setSelectedInvoice(null); setCandidates([]); }}
+        wide
         zIndex={10000}
       >
         {selectedInvoice && (
@@ -522,7 +471,7 @@ export default function AdminInvoicesPage() {
 
             {selectedInvoice.file_path && (
               <div>
-                <button className="primary" onClick={() => openPdf(selectedInvoice.id)}>
+                <button type="button" className="primary" onClick={() => openPdf(selectedInvoice.id)}>
                   Open PDF
                 </button>
               </div>
@@ -530,7 +479,7 @@ export default function AdminInvoicesPage() {
 
             <div style={{ border: "1px solid #e5e5e7", borderRadius: 12, padding: 14, background: "#fafafa" }}>
               <div className="subtle" style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Match to PO</div>
-              <button onClick={loadCandidates} disabled={candidatesLoading} style={{ marginBottom: 12 }}>
+              <button type="button" onClick={loadCandidates} disabled={candidatesLoading} style={{ marginBottom: 12 }}>
                 {candidatesLoading ? "Loading…" : "Find matches"}
               </button>
               {candidates.length > 0 && (
@@ -552,7 +501,7 @@ export default function AdminInvoicesPage() {
                         <div><strong>{c.po_number}</strong> · £{c.po_total.toFixed(2)} · diff £{c.total_diff.toFixed(2)} · {c.status}</div>
                         <div className="subtle">{c.reason}</div>
                       </div>
-                      <button className="primary" onClick={() => matchToPo(c.po_id)}>
+                      <button type="button" className="primary" onClick={() => matchToPo(c.po_id)}>
                         Match to this PO
                       </button>
                     </div>

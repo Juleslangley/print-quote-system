@@ -2,57 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../../lib/api";
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex: 9999,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: "min(900px, 100%)",
-          maxHeight: "90vh",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18, overflow: "auto", flex: 1 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
+import Modal from "../../_components/Modal";
 
 type Customer = any;
 type Contact = any;
@@ -112,6 +62,7 @@ export default function AdminCustomersPage() {
   const [billingAddress, setBillingAddress] = useState("");
   const [active, setActive] = useState(true);
   const [metaJson, setMetaJson] = useState("{}");
+  const [submitting, setSubmitting] = useState(false);
 
   function resetForm() {
     setName("");
@@ -231,7 +182,13 @@ export default function AdminCustomersPage() {
   }, [items, q, activeOnly]);
 
   async function saveCustomer() {
+    if (submitting) return;
+    if (!name.trim()) {
+      setErr("Name is required");
+      return;
+    }
     setErr("");
+    setSubmitting(true);
     try {
       let meta: Record<string, unknown> = {};
       try {
@@ -273,6 +230,8 @@ export default function AdminCustomersPage() {
       await load();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -532,8 +491,8 @@ export default function AdminCustomersPage() {
           <div className="subtle">Manage customer records for quotes and billing.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={load}>Refresh</button>
-          <button className="primary" onClick={openCreate}>New Customer</button>
+          <button type="button" onClick={load}>Refresh</button>
+          <button type="button" className="primary" onClick={openCreate}>New Customer</button>
         </div>
       </div>
 
@@ -599,7 +558,7 @@ export default function AdminCustomersPage() {
                       style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
                       onDoubleClick={(e) => e.stopPropagation()}
                     >
-                      <button onClick={() => openEdit(c)} onDoubleClick={(e) => e.stopPropagation()}>
+                      <button type="button" onClick={() => openEdit(c)} onDoubleClick={(e) => e.stopPropagation()}>
                         Edit
                       </button>
                     </div>
@@ -616,8 +575,15 @@ export default function AdminCustomersPage() {
         open={modalOpen}
         title={editing ? "Edit Customer" : "New Customer"}
         onClose={closeModal}
+        wide
       >
-        <div style={{ display: "grid", gap: 12 }}>
+        <form
+          style={{ display: "grid", gap: 12 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveCustomer();
+          }}
+        >
           {editing && !editing.active && (
             <div
               style={{
@@ -796,23 +762,42 @@ export default function AdminCustomersPage() {
             <div style={{ display: "flex", gap: 10 }}>
               {editing && (
                 <>
-                  <button onClick={handleToggleActiveInModal}>
-                    {editing.active ? "Deactivate" : "Activate"}
+<button type="button" onClick={handleToggleActiveInModal}>
+                  {editing.active ? "Deactivate" : "Activate"}
                   </button>
-                  <button className="danger" onClick={handleDeleteInModal}>
+                  <button type="button" className="danger" onClick={handleDeleteInModal}>
                     Delete Customer
                   </button>
                 </>
               )}
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={closeModal}>Cancel</button>
-              <button className="primary" onClick={saveCustomer} disabled={!name.trim()}>
-                {editing ? "Save changes" : "Create customer"}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button type="button" onClick={closeModal}>Cancel</button>
+              <button
+                type="button"
+                className="primary"
+                disabled={!name.trim() || submitting}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  saveCustomer();
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  if (name.trim() && !submitting) {
+                    e.preventDefault();
+                    saveCustomer();
+                  }
+                }}
+              >
+                {submitting ? "Saving…" : editing ? "Save changes" : "Create customer"}
               </button>
+              {!name.trim() && (
+                <span className="subtle" style={{ fontSize: 13 }}>Enter a name above to enable Create</span>
+              )}
             </div>
           </div>
-        </div>
+        </form>
       </Modal>
 
       <Modal

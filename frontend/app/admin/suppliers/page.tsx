@@ -2,54 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../../lib/api";
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex: 9999,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: "min(900px, 100%)",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
+import Modal from "../../_components/Modal";
 
 type Supplier = any;
 
@@ -264,8 +217,8 @@ export default function AdminSuppliersPage() {
           <div className="subtle">Manage supplier records used by Materials and templates.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={load}>Refresh</button>
-          <button className="primary" onClick={openCreate}>New Supplier</button>
+          <button type="button" onClick={load}>Refresh</button>
+          <button type="button" className="primary" onClick={openCreate}>New Supplier</button>
         </div>
       </div>
 
@@ -336,6 +289,7 @@ export default function AdminSuppliersPage() {
                           onDoubleClick={(e) => e.stopPropagation()}
                         >
                           <button
+                            type="button"
                             onClick={async () => {
                               const next = openSupplierId === s.id ? "" : s.id;
                               setOpenSupplierId(next);
@@ -345,7 +299,7 @@ export default function AdminSuppliersPage() {
                           >
                             {openSupplierId === s.id ? "Hide materials" : "Materials"}
                           </button>
-                          <button onClick={() => openEdit(s)} onDoubleClick={(e) => e.stopPropagation()}>
+                          <button type="button" onClick={() => openEdit(s)} onDoubleClick={(e) => e.stopPropagation()}>
                             Edit
                           </button>
                         </div>
@@ -375,7 +329,7 @@ export default function AdminSuppliersPage() {
                                         </div>
                                       </div>
                                       <div style={{ display: "flex", gap: 8 }}>
-                                        <button onClick={() => (window.location.href = `/admin/materials#${m.id}`)}>
+                                        <button type="button" onClick={() => (window.location.href = `/admin/materials#${m.id}`)}>
                                           Open
                                         </button>
                                       </div>
@@ -402,8 +356,15 @@ export default function AdminSuppliersPage() {
         open={modalOpen}
         title={editing ? `Edit Supplier` : `New Supplier`}
         onClose={closeModal}
+        wide
       >
-        <div style={{ display: "grid", gap: 12 }}>
+        <form
+          style={{ display: "grid", gap: 12 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveSupplier();
+          }}
+        >
           {editing && !editing.active && (
             <div
               style={{
@@ -493,10 +454,11 @@ export default function AdminSuppliersPage() {
             <div style={{ display: "flex", gap: 10 }}>
               {editing && (
                 <>
-                  <button onClick={handleToggleActiveInModal}>
+                  <button type="button" onClick={handleToggleActiveInModal}>
                     {editing.active ? "Deactivate" : "Activate"}
                   </button>
                   <button
+                    type="button"
                     className="danger"
                     onClick={handleDeleteInModal}
                     disabled={(usageBySupplier[editing.id]?.materials_count || 0) > 0}
@@ -508,13 +470,22 @@ export default function AdminSuppliersPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={closeModal}>Cancel</button>
-              <button className="primary" onClick={saveSupplier} disabled={!name.trim()}>
+              <button type="button" onClick={closeModal}>Cancel</button>
+              <button
+                type="button"
+                className="primary"
+                disabled={!name.trim()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  saveSupplier();
+                }}
+              >
                 {editing ? "Save changes" : "Create supplier"}
               </button>
             </div>
           </div>
-        </div>
+        </form>
       </Modal>
     </div>
   );

@@ -2,57 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../../lib/api";
-
-function Modal({
-  open,
-  title,
-  children,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.25)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        zIndex: 9999,
-      }}
-      onMouseDown={onClose}
-    >
-      <div
-        style={{
-          width: "min(520px, 100%)",
-          maxHeight: "90vh",
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
-          border: "1px solid #e5e5e7",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 600 }}>{title}</div>
-          <button onClick={onClose}>✕</button>
-        </div>
-        <div style={{ padding: 18, overflow: "auto", flex: 1 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
+import Modal from "../../_components/Modal";
 
 type UserRow = any;
 
@@ -242,8 +192,8 @@ export default function AdminUsersPage() {
           <div className="subtle">Manage logins and roles.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={load}>Refresh</button>
-          <button className="primary" onClick={openCreate}>New User</button>
+          <button type="button" onClick={load}>Refresh</button>
+          <button type="button" className="primary" onClick={openCreate}>New User</button>
         </div>
       </div>
 

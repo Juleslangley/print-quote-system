@@ -16,7 +16,7 @@ class Material(Base, TimestampMixin):
     supplier: Mapped[str] = mapped_column(String, default="")
 
     # NEW: proper supplier link
-    supplier_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("suppliers.id"), nullable=True)
+    supplier_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("suppliers.id"), nullable=True, index=True)
 
     # sheet fields
     cost_per_sheet_gbp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

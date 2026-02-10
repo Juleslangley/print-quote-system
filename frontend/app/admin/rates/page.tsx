@@ -106,8 +106,8 @@ export default function AdminRatesPage() {
             run_speed (JSON)
             <textarea value={runSpeedJson} onChange={(e) => setRunSpeedJson(e.target.value)} rows={4} />
           </label>
-          <button onClick={createRate}>Create</button>
-          <button onClick={load}>Refresh</button>
+          <button type="button" onClick={createRate}>Create</button>
+          <button type="button" onClick={load}>Refresh</button>
         </div>
       </div>
 
@@ -123,9 +123,9 @@ export default function AdminRatesPage() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => toggleActive(r)}>{r.active ? "Deactivate" : "Activate"}</button>
-                <button onClick={() => editRate(r)}>Edit run_speed</button>
-                <button onClick={() => deleteRate(r)}>Delete</button>
+                <button type="button" onClick={() => toggleActive(r)}>{r.active ? "Deactivate" : "Activate"}</button>
+                <button type="button" onClick={() => editRate(r)}>Edit run_speed</button>
+                <button type="button" onClick={() => deleteRate(r)}>Delete</button>
               </div>
             </div>
 
