@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../../lib/api";
+import { api } from "@/lib/api";
 
 export default function Quotes() {
   const [customers, setCustomers] = useState<any[]>([]);
@@ -16,8 +16,8 @@ export default function Quotes() {
       setLoading(true);
       setNeedsLogin(false);
       try {
-        const c = await api("/api/customers");
-        setCustomers(c);
+        const c = await api<any[]>("/api/customers");
+        setCustomers(c ?? []);
       } catch {
         setNeedsLogin(true);
       } finally {
@@ -29,7 +29,7 @@ export default function Quotes() {
   async function createQuote(customer_id: string) {
     setError("");
     try {
-      const q = await api("/api/quotes", { method: "POST", body: JSON.stringify({ customer_id }) });
+      const q = await api<{ id: string }>("/api/quotes", { method: "POST", body: JSON.stringify({ customer_id }) });
       setQuoteId(q.id);
     } catch (e: any) {
       setError(e?.message || "Failed to create quote");

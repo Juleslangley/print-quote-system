@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getApiLog, getLastApiError } from "../../lib/api";
+import { getApiLog, getLastApiError } from "@/lib/api";
 
 const MAX_DISPLAY = 10;
 

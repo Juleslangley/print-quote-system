@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 
 type Template = {
   id: string;
@@ -68,16 +68,19 @@ export default function AdminTemplatesPage() {
     setErr("");
     try {
       const [t, m, o] = await Promise.all([
-        api("/api/templates"),
-        api("/api/materials"),
-        api("/api/operations"),
+        api<Template[]>("/api/templates"),
+        api<any[]>("/api/materials"),
+        api<any[]>("/api/operations"),
       ]);
-      setTemplates(t || []);
-      setMaterials(m || []);
-      setOperations(o || []);
-      if (!selectedTemplateId && t?.length) setSelectedTemplateId(t[0].id);
-      if (!newOpId && o?.length) setNewOpId(o[0].id);
-      if (!newAllowedMaterialId && m?.length) setNewAllowedMaterialId(m[0].id);
+      const tList = (t ?? []) as Template[];
+      const mList = (m ?? []) as any[];
+      const oList = (o ?? []) as any[];
+      setTemplates(tList);
+      setMaterials(mList);
+      setOperations(oList);
+      if (!selectedTemplateId && tList.length) setSelectedTemplateId(tList[0].id);
+      if (!newOpId && oList.length) setNewOpId(oList[0].id);
+      if (!newAllowedMaterialId && mList.length) setNewAllowedMaterialId(mList[0].id);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -88,10 +91,11 @@ export default function AdminTemplatesPage() {
     setErr("");
     try {
       const [links, allowed] = await Promise.all([
-        api(`/api/templates/${templateId}/operations`),
-        api(`/api/templates/${templateId}/allowed-materials`),
+        api<any[]>(`/api/templates/${templateId}/operations`),
+        api<any[]>(`/api/templates/${templateId}/allowed-materials`),
       ]);
-      const sorted = (links || []).slice().sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const linksList = links || [];
+      const sorted = linksList.slice().sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
       setTemplateOpLinks(sorted);
       setAllowedMaterials(allowed || []);
       if (!newOpId && operations.length) setNewOpId(operations[0].id);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 
 export default function AdminMarginsPage() {
   const [err, setErr] = useState("");
@@ -16,7 +16,7 @@ export default function AdminMarginsPage() {
   async function load() {
     setErr("");
     try {
-      setProfiles((await api("/api/margin-profiles")) || []);
+      setProfiles((await api<any[]>("/api/margin-profiles")) ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }

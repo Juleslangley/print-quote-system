@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, setToken } from "@/lib/api";
 
 export default function Home() {
   const [email, setEmail] = useState("admin@local");
@@ -12,19 +12,20 @@ export default function Home() {
     try {
       const res = await fetch("/api/seed/dev", { method: "POST" });
       setMsg("Seed: " + (await res.text()));
-    } catch (e: any) {
-      setMsg("Seed error: " + (e?.message || String(e)));
+    } catch (e: unknown) {
+      setMsg("Seed error: " + (e instanceof Error ? e.message : String(e)));
     }
   }
 
   async function login() {
-    const out = await api("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }) as { access_token?: string };
-    const token = out?.access_token;
-    if (token) localStorage.setItem("token", token);
-    setMsg(token ? "Logged in." : "Login failed (no token).");
+    try {
+      const out = (await api.post("/api/auth/login", { email, password })) as { access_token?: string };
+      const token = out?.access_token;
+      if (token) setToken(token);
+      setMsg(token ? "Logged in." : "Login failed (no token).");
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : "Login failed.");
+    }
   }
 
   return (

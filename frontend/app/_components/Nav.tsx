@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api } from "../../lib/api";
+import { api, clearToken } from "@/lib/api";
 
 type Me = {
   id: string;
@@ -20,6 +20,7 @@ const NAV_MENU_ITEMS: { key: string; href: string; label: string }[] = [
   { key: "home", href: "/", label: "Home" },
   { key: "quotes", href: "/quotes", label: "Quotes" },
   { key: "production", href: "/production", label: "Production" },
+  { key: "packing", href: "/packing", label: "Packing" },
 ];
 
 export default function Nav() {
@@ -47,8 +48,8 @@ export default function Nav() {
       return;
     }
     setAuthUnavailable(false);
-    api("/api/me")
-      .then((data: Me) => {
+    api<Me>("/api/me")
+      .then((data) => {
         setMe(data);
         setAuthUnavailable(false);
       })
@@ -129,7 +130,7 @@ export default function Nav() {
           <button
             type="button"
             onClick={() => {
-              localStorage.removeItem("token");
+              clearToken();
               window.location.href = "/";
             }}
             style={{

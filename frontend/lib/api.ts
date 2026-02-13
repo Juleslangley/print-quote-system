@@ -1,12 +1,21 @@
 /**
- * API helper: same-origin requests to backend (Next.js rewrites /api/*).
- * - Sends Authorization: Bearer <token> for all methods when token exists (localStorage, same key as login).
- * - Always sends Accept: application/json.
- * - JSON body: Content-Type: application/json.
- * - Errors throw ApiError with status, message, and optional details; UI can show error.message and error.details.
+ * Shared API helper for the frontend.
+ * - Base URL: process.env.NEXT_PUBLIC_BACKEND_URL or fallback "http://localhost:8000".
+ * - Sends Authorization: Bearer <token> when token exists (localStorage).
+ * - Safe JSON parsing; throws ApiError on non-2xx responses.
+ * - api.get<T>(), api.post<T>(), api.patch<T>(); also api(path, opts) for custom requests.
  */
 
 const TOKEN_KEY = "token";
+
+const DEFAULT_BACKEND_URL = "http://localhost:8000";
+
+function getBaseUrl(): string {
+  if (typeof process === "undefined" || !process.env) return DEFAULT_BACKEND_URL;
+  const url = process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (url && typeof url === "string") return url.replace(/\/$/, "");
+  return DEFAULT_BACKEND_URL;
+}
 
 const MAX_LOG = 20;
 export type ApiLogEntry = { method: string; url: string; status: number; ts: number };
@@ -37,35 +46,33 @@ function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/** Store token after login. Use this so the key is consistent. */
+export function setToken(token: string): void {
+  if (typeof window !== "undefined") localStorage.setItem(TOKEN_KEY, token);
+}
+
+/** Clear token (logout or after 401). */
+export function clearToken(): void {
+  if (typeof window !== "undefined") localStorage.removeItem(TOKEN_KEY);
+}
+
 function errorMessageFromDetails(body: string, status: number, details: unknown): string {
-  let msg: string;
-  if (details === null || details === undefined) {
-    msg = body || `Request failed with status ${status}`;
-  } else if (typeof details !== "object" || !("detail" in details)) {
-    msg = body || `Request failed with status ${status}`;
-  } else {
-    const d = (details as { detail?: unknown }).detail;
-    if (typeof d === "string") msg = d;
-    else if (Array.isArray(d)) {
-      msg = d.map((e: { msg?: string; loc?: unknown }) => e?.msg || JSON.stringify(e)).join("; ") || body || `Request failed with status ${status}`;
-    } else {
-      msg = typeof d === "object" ? JSON.stringify(d) : String(d ?? body ?? `Request failed with status ${status}`);
-    }
-  }
-  return `${status}: ${msg}`;
+  if (details === null || details === undefined) return body || `Request failed with status ${status}`;
+  if (typeof details !== "object" || !("detail" in details)) return body || `Request failed with status ${status}`;
+  const d = (details as { detail?: unknown }).detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map((e: { msg?: string }) => e?.msg || JSON.stringify(e)).join("; ") || body || `Request failed with status ${status}`;
+  return typeof d === "object" ? JSON.stringify(d) : String(d ?? body ?? `Request failed with status ${status}`);
 }
 
 export class ApiError extends Error {
   status: number;
   body: string;
-  /** Parsed JSON when response was JSON (e.g. { detail: "..." }). */
   details?: unknown;
 
   constructor(status: number, body: string, details?: unknown) {
     let msg = errorMessageFromDetails(body, status, details);
-    if (status === 500 && body) {
-      msg += ` — Response: ${body.slice(0, 300)}${body.length > 300 ? "…" : ""}`;
-    }
+    if (status === 500 && body) msg += ` — Response: ${body.slice(0, 300)}${body.length > 300 ? "…" : ""}`;
     super(msg);
     this.name = "ApiError";
     this.status = status;
@@ -74,51 +81,34 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(path: string, opts: RequestInit = {}): Promise<unknown> {
-  const token = getToken();
-  const url = path.startsWith("/api") ? path : `/api${path}`;
+function resolveUrl(path: string): string {
+  const p = path.startsWith("/api") ? path : `/api${path}`;
+  const base = getBaseUrl();
+  return base ? `${base}${p}` : p;
+}
 
+async function request<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const url = resolveUrl(path);
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(opts.headers as Record<string, string>),
   };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  if (opts.body !== undefined && opts.body !== null) {
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (opts.body !== undefined && opts.body !== null && !(opts.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: opts.method,
-      credentials: opts.credentials ?? "same-origin",
-      mode: opts.mode,
-      cache: opts.cache,
-      redirect: opts.redirect,
-      referrer: opts.referrer,
-      integrity: opts.integrity,
-      keepalive: opts.keepalive,
-      signal: opts.signal,
-      body: opts.body,
-      headers,
-    });
-  } catch (err) {
-    const method = (opts.method || "GET").toUpperCase();
-    if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-      console.log("[api]", method, url, "network error");
-    }
+    res = await fetch(url, { ...opts, credentials: opts.credentials ?? "same-origin", headers });
+  } catch {
     pushApiError({ message: "Backend offline", status: 0, body: "", ts: Date.now() });
     throw new ApiError(0, "Backend offline");
   }
 
   const text = await res.text();
-  const method = (opts.method || "GET").toUpperCase();
-  if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-    console.log("[api]", method, url, res.status);
-  }
-  pushApiLog({ method, url, status: res.status, ts: Date.now() });
+  pushApiLog({ method: (opts.method || "GET").toUpperCase(), url, status: res.status, ts: Date.now() });
 
   if (!res.ok) {
     let details: unknown;
@@ -127,22 +117,29 @@ export async function api(path: string, opts: RequestInit = {}): Promise<unknown
     } catch {
       details = undefined;
     }
-    pushApiError({
-      message: errorMessageFromDetails(text || res.statusText, res.status, details),
-      status: res.status,
-      body: text || "",
-      ts: Date.now(),
-    });
-    if (typeof window !== "undefined") {
-      console.error("[api] Request failed:", { url, method, status: res.status, responseBody: text || "(empty)" });
+    pushApiError({ message: errorMessageFromDetails(text || res.statusText, res.status, details), status: res.status, body: text || "", ts: Date.now() });
+    if (res.status === 401) {
+      clearToken();
+      if (typeof window !== "undefined") window.location.href = "/";
     }
     throw new ApiError(res.status, text || res.statusText, details);
   }
 
-  if (!text.trim()) return null;
+  if (!text.trim()) return null as T;
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as T;
   } catch {
-    return text;
+    return text as T;
   }
 }
+
+export const api = Object.assign(
+  <T = unknown>(path: string, init?: RequestInit): Promise<T> => request<T>(path, init),
+  {
+    get: <T = unknown>(path: string, opts?: RequestInit) => request<T>(path, { ...opts, method: "GET" }),
+    post: <T = unknown>(path: string, body?: unknown, opts?: RequestInit) =>
+      request<T>(path, { ...opts, method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
+    patch: <T = unknown>(path: string, body?: unknown, opts?: RequestInit) =>
+      request<T>(path, { ...opts, method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  }
+);

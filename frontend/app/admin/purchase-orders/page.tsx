@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type PO = {
@@ -32,8 +32,8 @@ export default function AdminPurchaseOrdersPage() {
       if (q.trim()) params.set("q", q.trim());
       if (statusFilter) params.set("status", statusFilter);
       const path = `/api/purchase-orders${params.toString() ? `?${params}` : ""}`;
-      const data = await api(path);
-      setList(data || []);
+      const data = await api<PO[]>(path);
+      setList(data ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -41,9 +41,9 @@ export default function AdminPurchaseOrdersPage() {
 
   async function loadSuppliers() {
     try {
-      const data = await api("/api/suppliers");
-      setSuppliers(data || []);
-      if (data?.length && !newPOSupplierId) setNewPOSupplierId(data[0].id);
+      const list = (await api<{ id: string; name: string }[]>("/api/suppliers")) ?? [];
+      setSuppliers(list);
+      if (list.length && !newPOSupplierId) setNewPOSupplierId(list[0].id);
     } catch {}
   }
 
@@ -65,7 +65,7 @@ export default function AdminPurchaseOrdersPage() {
     }
     setErr("");
     try {
-      const po = await api("/api/purchase-orders", {
+      const po = await api<PO>("/api/purchase-orders", {
         method: "POST",
         body: JSON.stringify({ supplier_id: newPOSupplierId }),
       });

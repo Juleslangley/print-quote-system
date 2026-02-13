@@ -59,6 +59,9 @@ def seed_dev(db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == "production@local").first() is None:
         db.add(User(id=new_id(), email="production@local", password_hash=hash_password("prod123"), role="production"))
 
+    if db.query(User).filter(User.email == "packer@local").first() is None:
+        db.add(User(id=new_id(), email="packer@local", password_hash=hash_password("packer123"), role="packer"))
+
     # customer
     if db.query(Customer).count() == 0:
         db.add(Customer(id=new_id(), name="Demo Customer", email="demo@customer.local"))

@@ -47,6 +47,10 @@ services:
       - BACKEND_INTERNAL_URL=http://backend:8000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       backend:
         condition: service_healthy

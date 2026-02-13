@@ -36,3 +36,4 @@ def require_roles(*roles: str):
 require_admin = require_roles("admin")
 require_sales = require_roles("admin", "sales")
 require_prod_or_better = require_roles("admin", "sales", "production")
+require_packer = require_roles("admin", "packer")

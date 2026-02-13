@@ -5,4 +5,5 @@ from app.api.deps import (
     require_admin,
     require_sales,
     require_prod_or_better,
+    require_packer,
 )

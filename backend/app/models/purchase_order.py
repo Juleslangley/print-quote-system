@@ -8,6 +8,7 @@ from app.models.base import TimestampMixin
 class PurchaseOrder(Base, TimestampMixin):
     __tablename__ = "purchase_orders"
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    job_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True)
     po_number: Mapped[str] = mapped_column(String, unique=True, index=True)
     supplier_id: Mapped[str] = mapped_column(String, ForeignKey("suppliers.id"), index=True)
     status: Mapped[str] = mapped_column(String, default="draft")

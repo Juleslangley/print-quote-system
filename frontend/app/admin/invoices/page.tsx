@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type SupplierInvoice = {
@@ -68,11 +68,11 @@ export default function AdminInvoicesPage() {
     setErr("");
     try {
       const [invList, supList] = await Promise.all([
-        api("/api/supplier-invoices"),
-        api("/api/suppliers"),
+        api<SupplierInvoice[]>("/api/supplier-invoices"),
+        api<any[]>("/api/suppliers"),
       ]);
-      setInvoices(invList || []);
-      setSuppliers(supList || []);
+      setInvoices(invList ?? []);
+      setSuppliers(supList ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -135,7 +135,7 @@ export default function AdminInvoicesPage() {
       form.append("vat_gbp", String(num(uploadVat, 0)));
       form.append("total_gbp", String(num(uploadTotal, 0)));
       form.append("currency", uploadCurrency);
-      const res = await api("/api/supplier-invoices/upload", {
+      const res = await api<SupplierInvoice>("/api/supplier-invoices/upload", {
         method: "POST",
         body: form,
       });
@@ -159,8 +159,8 @@ export default function AdminInvoicesPage() {
     setCandidatesLoading(true);
     setErr("");
     try {
-      const res = await api(`/api/supplier-invoices/${selectedInvoice.id}/candidates`);
-      setCandidates(res?.candidates || []);
+      const res = await api<{ candidates?: Candidate[] }>(`/api/supplier-invoices/${selectedInvoice.id}/candidates`);
+      setCandidates(res?.candidates ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -172,7 +172,7 @@ export default function AdminInvoicesPage() {
     if (!selectedInvoice?.id) return;
     setErr("");
     try {
-      const updated = await api(`/api/supplier-invoices/${selectedInvoice.id}/match`, {
+      const updated = await api<SupplierInvoice>(`/api/supplier-invoices/${selectedInvoice.id}/match`, {
         method: "POST",
         body: JSON.stringify({ po_id: poId }),
       });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type Customer = any;
@@ -115,8 +115,8 @@ export default function AdminCustomersPage() {
   async function load() {
     setErr("");
     try {
-      const list = await api("/api/customers");
-      setItems(list || []);
+      const list = await api<any[]>("/api/customers");
+      setItems(list ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -125,7 +125,7 @@ export default function AdminCustomersPage() {
   async function loadUsage(customerId: string) {
     if (usageByCustomer[customerId]) return;
     try {
-      const u = await api(`/api/customers/${customerId}/usage`);
+      const u = await api<any>(`/api/customers/${customerId}/usage`);
       setUsageByCustomer((prev) => ({ ...prev, [customerId]: u }));
     } catch {
       setUsageByCustomer((prev) => ({ ...prev, [customerId]: null }));
@@ -134,8 +134,8 @@ export default function AdminCustomersPage() {
 
   async function loadContacts(customerId: string) {
     try {
-      const list = await api(`/api/customers/${customerId}/contacts`);
-      setContacts(list || []);
+      const list = await api<any[]>(`/api/customers/${customerId}/contacts`);
+      setContacts(list ?? []);
     } catch {
       setContacts([]);
     }
@@ -290,8 +290,8 @@ export default function AdminCustomersPage() {
 
   async function loadContactMethods(contactId: string) {
     try {
-      const list = await api(`/api/customer-contacts/${contactId}/methods`);
-      setContactMethods(list || []);
+      const list = await api<any[]>(`/api/customer-contacts/${contactId}/methods`);
+      setContactMethods(list ?? []);
     } catch {
       setContactMethods([]);
     }
@@ -302,7 +302,7 @@ export default function AdminCustomersPage() {
     await Promise.all(
       contactIds.map(async (id) => {
         try {
-          out[id] = await api(`/api/customer-contacts/${id}/methods`);
+          out[id] = await api<any[]>(`/api/customer-contacts/${id}/methods`);
         } catch {
           out[id] = [];
         }

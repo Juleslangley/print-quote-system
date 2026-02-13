@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type Supplier = any;
@@ -70,8 +70,8 @@ export default function AdminSuppliersPage() {
   async function load() {
     setErr("");
     try {
-      const s = await api("/api/suppliers");
-      setItems(s || []);
+      const list = (await api<any[]>("/api/suppliers")) ?? [];
+      setItems(list);
 
       // auto-open from ?open=...
       const params = new URLSearchParams(window.location.search);
@@ -81,9 +81,9 @@ export default function AdminSuppliersPage() {
       // load usage summaries (best effort)
       const out: Record<string, any> = {};
       await Promise.all(
-        (s || []).map(async (x: any) => {
+        list.map(async (x: any) => {
           try {
-            out[x.id] = await api(`/api/suppliers/${x.id}/usage`);
+            out[x.id] = await api<any>(`/api/suppliers/${x.id}/usage`);
           } catch {
             // optional endpoint
           }
@@ -102,8 +102,8 @@ export default function AdminSuppliersPage() {
   async function loadSupplierMaterials(supplierId: string) {
     if (materialsBySupplier[supplierId]) return;
     try {
-      const mats = await api(`/api/suppliers/${supplierId}/materials`);
-      setMaterialsBySupplier((prev) => ({ ...prev, [supplierId]: mats || [] }));
+      const mats = await api<any[]>(`/api/suppliers/${supplierId}/materials`);
+      setMaterialsBySupplier((prev) => ({ ...prev, [supplierId]: mats ?? [] }));
     } catch (e: any) {
       // optional endpoint
       setErr(e instanceof ApiError ? e.message : String(e));

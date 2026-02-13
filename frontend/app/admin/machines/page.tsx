@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 const CATEGORIES = [
@@ -151,8 +151,8 @@ export default function AdminMachinesPage() {
 
   async function loadRates(machineId: string) {
     try {
-      const list = await api(`/api/machines/${machineId}/rates`);
-      setRates(list || []);
+      const list = await api<MachineRate[]>(`/api/machines/${machineId}/rates`);
+      setRates(list ?? []);
     } catch {
       setRates([]);
     }
@@ -161,8 +161,8 @@ export default function AdminMachinesPage() {
   async function load() {
     setErr("");
     try {
-      const list = await api("/api/machines");
-      setItems(list || []);
+      const list = await api<Machine[]>("/api/machines");
+      setItems(list ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }

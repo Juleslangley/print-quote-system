@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     JWT_SECRET: str = "dev"
     PRICING_VERSION: str = "v1.0.0"
+    JOB_NO_PREFIX: str = "J"  # e.g. J0001, J0002
+    UPLOADS_DIR: str = "uploads"  # relative to backend root or absolute path
 
     class Config:
         env_file = [str(p) for p in _env_files]

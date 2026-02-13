@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type UserRow = any;
@@ -83,8 +83,8 @@ export default function AdminUsersPage() {
   async function load() {
     setErr("");
     try {
-      const list = await api("/api/users");
-      setItems(list || []);
+      const list = await api<any[]>("/api/users");
+      setItems(list ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -135,7 +135,7 @@ export default function AdminUsersPage() {
           active,
         };
         if (password.trim()) payload.password = password;
-        const res = await api("/api/users", { method: "POST", body: JSON.stringify(payload) });
+        const res = await api<{ temp_password?: string }>("/api/users", { method: "POST", body: JSON.stringify(payload) });
         if (res?.temp_password) setTempPasswordShown(res.temp_password);
         else {
           closeModal();

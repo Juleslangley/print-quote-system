@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, ApiError } from "../../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../../_components/Modal";
 
 type PO = {
@@ -65,7 +65,7 @@ export default function PurchaseOrderDetailPage() {
   async function loadPO() {
     setErr("");
     try {
-      const data = await api(`/api/purchase-orders/${id}`);
+      const data = await api<PO>(`/api/purchase-orders/${id}`);
       setPo(data);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -75,8 +75,8 @@ export default function PurchaseOrderDetailPage() {
 
   async function loadLines() {
     try {
-      const data = await api(`/api/purchase-orders/${id}/lines`);
-      setLines(data || []);
+      const data = await api<POLine[]>(`/api/purchase-orders/${id}/lines`);
+      setLines(data ?? []);
     } catch {
       setLines([]);
     }
@@ -84,8 +84,8 @@ export default function PurchaseOrderDetailPage() {
 
   async function loadSuppliers() {
     try {
-      const data = await api("/api/suppliers");
-      setSuppliers(data || []);
+      const data = await api<any[]>("/api/suppliers");
+      setSuppliers(data ?? []);
     } catch {}
   }
 
@@ -102,8 +102,8 @@ export default function PurchaseOrderDetailPage() {
       return;
     }
     let cancelled = false;
-    api("/api/materials")
-      .then((arr: Material[]) => {
+    api<Material[]>("/api/materials")
+      .then((arr) => {
         if (cancelled) return;
         const q = materialSearch.trim().toLowerCase();
         setMaterials(
@@ -124,8 +124,8 @@ export default function PurchaseOrderDetailPage() {
       setSelectedSize(null);
       return;
     }
-    api(`/api/materials/${selectedMaterial.id}/sizes`)
-      .then((arr: MaterialSize[]) => {
+    api<MaterialSize[]>(`/api/materials/${selectedMaterial.id}/sizes`)
+      .then((arr) => {
         setSizes(arr || []);
         setSelectedSize(null);
       })

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 
 export default function QuoteDetail({ params }: any) {
   const id = params.id as string;
@@ -22,13 +22,14 @@ export default function QuoteDetail({ params }: any) {
   async function refresh() {
     setErr("");
     try {
-      const q = await api(`/api/quotes/${id}`);
-      const t = await api("/api/templates");
-      const it = await api(`/api/quotes/${id}/items`);
+      const q = await api<any>(`/api/quotes/${id}`);
+      const t = await api<any[]>("/api/templates");
+      const it = await api<any[]>(`/api/quotes/${id}/items`);
       setQuote(q);
-      setTemplates(t);
-      setItems(it);
-      if (!selectedTemplate && t?.length) setSelectedTemplate(t[0].id);
+      setTemplates(t ?? []);
+      setItems(it ?? []);
+      const tList = t ?? [];
+      if (!selectedTemplate && tList.length) setSelectedTemplate(tList[0].id);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }

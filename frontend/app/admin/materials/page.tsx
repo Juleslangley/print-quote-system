@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type Material = any;
@@ -66,9 +66,9 @@ export default function AdminMaterialsPage() {
   async function load() {
     setErr("");
     try {
-      const [mats, sups] = await Promise.all([api("/api/materials"), api("/api/suppliers")]);
-      setMaterials(mats || []);
-      setSuppliers(sups || []);
+      const [mats, sups] = await Promise.all([api<any[]>("/api/materials"), api<any[]>("/api/suppliers")]);
+      setMaterials(mats ?? []);
+      setSuppliers(sups ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -77,7 +77,7 @@ export default function AdminMaterialsPage() {
   async function loadUsage(materialId: string) {
     if (usageByMaterial[materialId]) return;
     try {
-      const u = await api(`/api/materials/${materialId}/usage`);
+      const u = await api<any>(`/api/materials/${materialId}/usage`);
       setUsageByMaterial((prev) => ({ ...prev, [materialId]: u }));
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -87,8 +87,8 @@ export default function AdminMaterialsPage() {
   async function loadSizes(materialId: string) {
     setSizesLoading(true);
     try {
-      const list = await api(`/api/materials/${materialId}/sizes`);
-      setSizes(list || []);
+      const list = await api<any[]>(`/api/materials/${materialId}/sizes`);
+      setSizes(list ?? []);
     } catch {
       setSizes([]);
     } finally {

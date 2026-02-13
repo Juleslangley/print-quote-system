@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../../../lib/api";
+import { api, ApiError } from "@/lib/api";
 
 export default function AdminOperationsPage() {
   const [err, setErr] = useState("");
@@ -16,7 +16,7 @@ export default function AdminOperationsPage() {
   async function load() {
     setErr("");
     try {
-      setOps((await api("/api/operations")) || []);
+      setOps((await api<any[]>("/api/operations")) ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }

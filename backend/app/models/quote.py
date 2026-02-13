@@ -8,6 +8,7 @@ class Quote(Base, TimestampMixin):
     __tablename__ = "quotes"
     id: Mapped[str] = mapped_column(String, primary_key=True)
     quote_number: Mapped[str] = mapped_column(String, unique=True, index=True)
+    job_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True)
     customer_id: Mapped[str] = mapped_column(String, ForeignKey("customers.id"))
     contact_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("customer_contacts.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String, default="draft")
