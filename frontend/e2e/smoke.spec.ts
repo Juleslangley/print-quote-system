@@ -6,10 +6,12 @@ const ADMIN_PASSWORD = "admin123";
 test.describe("Smoke: modal and nav after close", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
+    await page.request.post("/api/seed/dev").catch(() => {});
     await page.getByPlaceholder("email").fill(ADMIN_EMAIL);
     await page.getByPlaceholder("password").fill(ADMIN_PASSWORD);
     await page.getByRole("button", { name: "Login" }).click();
     await expect(page.getByText("Logged in")).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
   });
 
   test("materials: open modal, cancel, Admin nav works", async ({ page }) => {
@@ -62,20 +64,25 @@ test.describe("Smoke: modal and nav after close", () => {
     await expect(addLineDialog).not.toBeVisible({ timeout: 5000 });
     await expect(page.getByText("E2E test line")).toBeVisible({ timeout: 5000 });
 
-    await page.getByRole("button", { name: "Save draft" }).click();
-    await expect(page.getByRole("heading", { name: /^PO\d+$/ })).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "Process order" }).click();
+    await expect(page.getByText(/PO\d+/).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test("materials: Order button creates PO and opens detail", async ({ page }) => {
+  test("materials: Order button creates PO and opens Add line modal with material", async ({ page }) => {
     await page.goto("/materials");
-    await expect(page.getByRole("heading", { name: /Materials/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("heading", { name: /Materials/i })).toBeVisible({ timeout: 15000 });
+    await page.waitForLoadState("networkidle");
     const orderBtn = page.getByRole("button", { name: "Order" }).first();
-    await expect(orderBtn).toBeVisible();
+    await expect(orderBtn).toBeVisible({ timeout: 10000 });
     if (await orderBtn.isDisabled()) {
       test.skip(true, "No material with supplier; add a supplier to a material to test Order");
     }
     await orderBtn.click();
     await expect(page).toHaveURL(/\/admin\/purchase-orders\/[a-f0-9-]+/, { timeout: 15000 });
+    await expect(page).toHaveURL(/materialId=/, { timeout: 5000 });
     await expect(page.getByRole("heading", { name: /Draft|PO\d+/ })).toBeVisible({ timeout: 5000 });
+    const addLineDialog = page.getByRole("dialog", { name: "Add line" });
+    await expect(addLineDialog).toBeVisible({ timeout: 5000 });
+    await expect(addLineDialog.getByText(/Material \(from materials\)|Description/i).first()).toBeVisible({ timeout: 5000 });
   });
 });

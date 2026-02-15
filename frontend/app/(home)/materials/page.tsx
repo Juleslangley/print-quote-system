@@ -12,8 +12,11 @@ type MaterialSize = {
   material_id: string;
   label: string;
   width_mm: number;
-  height_mm: number;
+  height_mm: number | null;
   cost_per_sheet_gbp: number | null;
+  cost_per_lm_gbp: number | null;
+  length_m: number | null;
+  custom_length_available?: boolean;
   active: boolean;
   sort_order: number;
 };
@@ -40,7 +43,6 @@ export default function MaterialsPage() {
   const [supplierFilterId, setSupplierFilterId] = useState<string>("all");
   const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
   const [orderingMaterialId, setOrderingMaterialId] = useState<string | null>(null);
-  const [navigateToPoUrl, setNavigateToPoUrl] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Material | null>(null);
@@ -53,9 +55,6 @@ export default function MaterialsPage() {
   const [supplierStr, setSupplierStr] = useState("");
   const [wastePct, setWastePct] = useState(0.05);
   const [active, setActive] = useState(true);
-  const [rollW, setRollW] = useState(0);
-  const [costLm, setCostLm] = useState(0);
-  const [minLm, setMinLm] = useState(1);
   const [meta, setMeta] = useState<Record<string, any>>({});
   const [cutterTools, setCutterTools] = useState<CutterToolEntry[]>([]);
   const [editAdvancedMeta, setEditAdvancedMeta] = useState(false);
@@ -67,8 +66,11 @@ export default function MaterialsPage() {
   const [editingSize, setEditingSize] = useState<MaterialSize | null>(null);
   const [sizeLabel, setSizeLabel] = useState("");
   const [sizeWidthMm, setSizeWidthMm] = useState(0);
-  const [sizeHeightMm, setSizeHeightMm] = useState(0);
+  const [sizeHeightMm, setSizeHeightMm] = useState<number | "">("");
   const [sizeCostPerSheet, setSizeCostPerSheet] = useState<number | "">("");
+  const [sizeCostPerLm, setSizeCostPerLm] = useState<number | "">("");
+  const [sizeLengthM, setSizeLengthM] = useState<number | "">("");
+  const [sizeCustomLengthAvailable, setSizeCustomLengthAvailable] = useState(false);
   const [sizeActive, setSizeActive] = useState(true);
   const [sizeSortOrder, setSizeSortOrder] = useState(0);
 
@@ -119,16 +121,33 @@ export default function MaterialsPage() {
     }
   }
 
+  const sortedSizes = useMemo(() => {
+    const list = [...sizes];
+    if (matType === "roll") {
+      list.sort((a, b) => {
+        const wA = Number(a.width_mm) || 0;
+        const wB = Number(b.width_mm) || 0;
+        if (wA !== wB) return wA - wB;
+        const lA = a.length_m != null ? Number(a.length_m) : Infinity;
+        const lB = b.length_m != null ? Number(b.length_m) : Infinity;
+        return lA - lB;
+      });
+    } else {
+      list.sort((a, b) => {
+        const wA = Number(a.width_mm) || 0;
+        const wB = Number(b.width_mm) || 0;
+        if (wA !== wB) return wA - wB;
+        const hA = a.height_mm != null ? Number(a.height_mm) : Infinity;
+        const hB = b.height_mm != null ? Number(b.height_mm) : Infinity;
+        return hA - hB;
+      });
+    }
+    return list;
+  }, [sizes, matType]);
+
   useEffect(() => {
     load();
   }, []);
-
-  useEffect(() => {
-    if (navigateToPoUrl) {
-      window.location.href = navigateToPoUrl;
-      setNavigateToPoUrl(null);
-    }
-  }, [navigateToPoUrl]);
 
   useEffect(() => {
     const hash = window.location.hash?.replace("#", "");
@@ -170,9 +189,6 @@ export default function MaterialsPage() {
     setSupplierStr(suppliers.length ? suppliers[0].name : "");
     setWastePct(0.05);
     setActive(true);
-    setRollW(1600);
-    setCostLm(0);
-    setMinLm(1);
     setMeta({});
     setCutterTools([]);
     setEditAdvancedMeta(false);
@@ -198,9 +214,6 @@ export default function MaterialsPage() {
     setSupplierStr(sup ? sup.name : m.supplier || "");
     setWastePct(num(m.waste_pct_default, 0.05));
     setActive(!!m.active);
-    setRollW(num(m.roll_width_mm, 0));
-    setCostLm(num(m.cost_per_lm_gbp, 0));
-    setMinLm(num(m.min_billable_lm, 1));
     setMeta(m.meta && typeof m.meta === "object" ? { ...m.meta } : {});
     const rawMeta = m.meta && typeof m.meta === "object" ? (m.meta as any) : {};
     const rawTools = rawMeta.cutter_tools;
@@ -227,9 +240,94 @@ export default function MaterialsPage() {
     }
   }
 
+  function isMaterialFormDirty(): boolean {
+    if (editing) {
+      const sup = suppliers.find((s) => s.id === editing.supplier_id);
+      const prevSupplierStr = sup ? sup.name : editing.supplier || "";
+      if (name !== (editing.name || "")) return true;
+      if (nominalCode !== (editing.nominal_code ?? "")) return true;
+      if (supplierProductCode !== (editing.supplier_product_code ?? "")) return true;
+      if (matType !== (editing.type === "roll" ? "roll" : "sheet")) return true;
+      if (supplierId !== (editing.supplier_id || "")) return true;
+      if (supplierStr !== prevSupplierStr) return true;
+      if (num(wastePct) !== num(editing.waste_pct_default, 0.05)) return true;
+      if (active !== !!editing.active) return true;
+      const rawMeta = editing.meta && typeof editing.meta === "object" ? (editing.meta as any) : {};
+      const prevTools = rawMeta.cutter_tools;
+      const prevArr = Array.isArray(prevTools) && prevTools.length > 0
+        ? prevTools.filter((t: any) => t && typeof t === "object" && typeof t.key === "string").map((t: any) => ({ key: String(t.key), default: !!t.default }))
+        : rawMeta.cutter_tool_key ? [{ key: String(rawMeta.cutter_tool_key), default: true }] : [];
+      if (cutterTools.length !== prevArr.length || cutterTools.some((t, i) => (prevArr[i]?.key !== t.key || prevArr[i]?.default !== t.default))) return true;
+      const prevMeta = editing.meta && typeof editing.meta === "object" ? { ...(editing.meta as object) } : {};
+      delete (prevMeta as any).cutter_tools;
+      delete (prevMeta as any).cutter_tool_key;
+      const currMeta = editAdvancedMeta ? (() => { try { return JSON.parse(editMetaJson || "{}"); } catch { return {}; } })() : meta;
+      if (JSON.stringify(currMeta) !== JSON.stringify(prevMeta)) return true;
+      return false;
+    }
+    // New material: dirty if user has entered anything
+    return name.trim() !== "" || nominalCode.trim() !== "" || supplierProductCode.trim() !== "" ||
+      matType !== "sheet" || wastePct !== 0.05 || !active ||
+      (Object.keys(meta).length > 0 && JSON.stringify(meta) !== "{}") || cutterTools.length > 0;
+  }
+
+  function isSizeFormDirty(): boolean {
+    if (editingSize) {
+      if (sizeLabel !== (editingSize.label || "")) return true;
+      if (num(sizeWidthMm) !== num(editingSize.width_mm, 0)) return true;
+      if (matType === "roll") {
+        const lenCur = sizeLengthM === "" ? null : num(sizeLengthM, 0);
+        const lenPrev = editingSize.length_m ?? null;
+        if (lenCur !== lenPrev) return true;
+        const clCur = sizeCostPerLm === "" ? null : num(sizeCostPerLm, 0);
+        const clPrev = editingSize.cost_per_lm_gbp ?? null;
+        if (clCur !== clPrev) return true;
+      } else {
+        const hCur = sizeHeightMm === "" ? null : num(sizeHeightMm, 0);
+        const hPrev = editingSize.height_mm ?? null;
+        if (hCur !== hPrev) return true;
+        const csCur = sizeCostPerSheet === "" ? null : num(sizeCostPerSheet, 0);
+        const csPrev = editingSize.cost_per_sheet_gbp ?? null;
+        if (csCur !== csPrev) return true;
+      }
+      if (sizeActive !== !!editingSize.active) return true;
+      if (sizeSortOrder !== (editingSize.sort_order ?? 0)) return true;
+      if (matType === "roll" && sizeCustomLengthAvailable !== !!((editingSize as MaterialSize).custom_length_available)) return true;
+      return false;
+    }
+    return sizeLabel.trim() !== "" || sizeWidthMm !== 0 || sizeHeightMm !== "" || sizeCostPerSheet !== "" ||
+      sizeCostPerLm !== "" || sizeLengthM !== "" || sizeCustomLengthAvailable || !sizeActive || sizeSortOrder !== sizes.length;
+  }
+
   function closeModal() {
     setModalOpen(false);
     setEditing(null);
+    setSizeModalOpen(false);
+    setEditingSize(null);
+  }
+
+  function closeMaterialModal() {
+    if (modalOpen && isMaterialFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        closeModal();
+        return;
+      }
+      saveMaterial();
+      return;
+    }
+    closeModal();
+  }
+
+  function closeSizeModal() {
+    if (sizeModalOpen && isSizeFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        setSizeModalOpen(false);
+        setEditingSize(null);
+        return;
+      }
+      saveSize();
+      return;
+    }
     setSizeModalOpen(false);
     setEditingSize(null);
   }
@@ -238,8 +336,11 @@ export default function MaterialsPage() {
     setEditingSize(null);
     setSizeLabel("");
     setSizeWidthMm(0);
-    setSizeHeightMm(0);
+    setSizeHeightMm("");
     setSizeCostPerSheet("");
+    setSizeCostPerLm("");
+    setSizeLengthM("");
+    setSizeCustomLengthAvailable(false);
     setSizeActive(true);
     setSizeSortOrder(sizes.length);
     setSizeModalOpen(true);
@@ -249,8 +350,11 @@ export default function MaterialsPage() {
     setEditingSize(s);
     setSizeLabel(s.label || "");
     setSizeWidthMm(num(s.width_mm, 0));
-    setSizeHeightMm(num(s.height_mm, 0));
+    setSizeHeightMm(s.height_mm != null ? s.height_mm : "");
     setSizeCostPerSheet(s.cost_per_sheet_gbp != null ? s.cost_per_sheet_gbp : "");
+    setSizeCostPerLm(s.cost_per_lm_gbp != null ? s.cost_per_lm_gbp : "");
+    setSizeLengthM(s.length_m != null ? s.length_m : "");
+    setSizeCustomLengthAvailable(!!(s as MaterialSize).custom_length_available);
     setSizeActive(!!s.active);
     setSizeSortOrder(s.sort_order ?? 0);
     setSizeModalOpen(true);
@@ -260,31 +364,31 @@ export default function MaterialsPage() {
     if (!editing?.id) return;
     setErr("");
     try {
-      const cost = sizeCostPerSheet === "" ? null : num(sizeCostPerSheet, 0);
+      const isRoll = matType === "roll";
+      const costSheet = sizeCostPerSheet === "" ? null : num(sizeCostPerSheet, 0);
+      const costLm = sizeCostPerLm === "" ? null : num(sizeCostPerLm, 0);
+      const heightVal = sizeHeightMm === "" ? null : num(sizeHeightMm, 0);
+      const lengthVal = sizeLengthM === "" ? null : num(sizeLengthM, 0);
+      const payload = {
+        label: sizeLabel.trim(),
+        width_mm: sizeWidthMm,
+        height_mm: isRoll ? null : heightVal,
+        cost_per_sheet_gbp: isRoll ? null : costSheet,
+        cost_per_lm_gbp: isRoll ? costLm : null,
+        length_m: isRoll ? lengthVal : null,
+        custom_length_available: isRoll ? sizeCustomLengthAvailable : false,
+        active: sizeActive,
+        sort_order: sizeSortOrder,
+      };
       if (editingSize) {
         await api(`/api/material-sizes/${editingSize.id}`, {
           method: "PUT",
-          body: JSON.stringify({
-            label: sizeLabel.trim(),
-            width_mm: sizeWidthMm,
-            height_mm: sizeHeightMm,
-            cost_per_sheet_gbp: cost,
-            active: sizeActive,
-            sort_order: sizeSortOrder,
-          }),
+          body: JSON.stringify(payload),
         });
       } else {
         await api("/api/material-sizes", {
           method: "POST",
-          body: JSON.stringify({
-            material_id: editing.id,
-            label: sizeLabel.trim(),
-            width_mm: sizeWidthMm,
-            height_mm: sizeHeightMm,
-            cost_per_sheet_gbp: cost,
-            active: sizeActive,
-            sort_order: sizeSortOrder,
-          }),
+          body: JSON.stringify({ ...payload, material_id: editing.id }),
         });
       }
       setSizeModalOpen(false);
@@ -364,9 +468,9 @@ export default function MaterialsPage() {
         payload.roll_width_mm = null;
         payload.min_billable_lm = null;
       } else {
-        payload.roll_width_mm = rollW;
-        payload.cost_per_lm_gbp = costLm;
-        payload.min_billable_lm = minLm;
+        payload.roll_width_mm = null;
+        payload.cost_per_lm_gbp = null;
+        payload.min_billable_lm = null;
         payload.cost_per_sheet_gbp = null;
         payload.sheet_width_mm = null;
         payload.sheet_height_mm = null;
@@ -450,8 +554,8 @@ export default function MaterialsPage() {
         setErr("Failed to create purchase order: no id returned.");
         return;
       }
-      const base = typeof window !== "undefined" && process.env.NEXT_PUBLIC_BASE_PATH ? process.env.NEXT_PUBLIC_BASE_PATH.replace(/\/$/, "") : "";
-      setNavigateToPoUrl(`${base}/admin/purchase-orders/${po.id}?from=materials&materialId=${m.id}`);
+      const base = typeof window !== "undefined" && process.env.NEXT_PUBLIC_BASE_PATH ? String(process.env.NEXT_PUBLIC_BASE_PATH).replace(/\/$/, "") : "";
+      window.location.href = `${base}/admin/purchase-orders/${po.id}?from=materials&materialId=${m.id}`;
     } catch (e: any) {
       setOrderingMaterialId(null);
       const msg = e instanceof ApiError ? e.message : String(e);
@@ -589,7 +693,7 @@ export default function MaterialsPage() {
                     <div className="subtle">
                       {m.type === "sheet"
                         ? "Sheet · see Sizes in Edit"
-                        : `${m.roll_width_mm}mm · £${m.cost_per_lm_gbp}/lm · Min ${m.min_billable_lm}lm`}
+                        : "Roll · see Roll widths in Edit"}
                     </div>
                   </td>
                   <td
@@ -634,7 +738,7 @@ export default function MaterialsPage() {
       <Modal
         open={modalOpen}
         title={editing ? "Edit Material" : "New Material"}
-        onClose={closeModal}
+        onClose={closeMaterialModal}
         wide
       >
         <form
@@ -704,33 +808,12 @@ export default function MaterialsPage() {
             </div>
           </div>
 
-          {/* Roll (type-specific) — only for roll materials */}
-          {matType === "roll" && (
-            <div style={{ border: "1px solid #e5e5e7", borderRadius: 12, padding: 14, background: "#fafafa" }}>
-              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Roll</div>
-              <div className="row">
-                <div className="col">
-                  <label className="subtle">Roll width (mm)</label>
-                  <input type="number" value={rollW} onChange={(e) => setRollW(num(e.target.value, 0))} />
-                </div>
-                <div className="col">
-                  <label className="subtle">Cost per lm (£)</label>
-                  <input type="number" step="0.01" value={costLm} onChange={(e) => setCostLm(num(e.target.value, 0))} />
-                </div>
-                <div className="col">
-                  <label className="subtle">Min billable (lm)</label>
-                  <input type="number" step="0.1" value={minLm} onChange={(e) => setMinLm(num(e.target.value, 1))} />
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Sizes — dedicated panel: only sizes content */}
           {editing ? (
             <div style={{ border: "1px solid #e5e5e7", borderRadius: 12, padding: 14, background: "#fafafa" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <span style={{ fontSize: 16, fontWeight: 700 }}>Sizes</span>
-                <button type="button" onClick={openAddSize} style={{ fontSize: 12, padding: "4px 8px", backgroundColor: "#e6f2ff", color: "#004080", border: "1px solid #b3d9ff" }}>+ Add Size</button>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>{matType === "roll" ? "Roll widths" : "Sizes"}</span>
+                <button type="button" onClick={(e) => { e.preventDefault(); openAddSize(); }} style={{ fontSize: 12, padding: "4px 8px", backgroundColor: "#e6f2ff", color: "#004080", border: "1px solid #b3d9ff" }}>+ Add {matType === "roll" ? "Width" : "Size"}</button>
               </div>
               {sizesLoading ? (
                 <div className="subtle" style={{ fontSize: 14, padding: "12px 0" }}>Loading…</div>
@@ -741,15 +824,16 @@ export default function MaterialsPage() {
                       <thead>
                         <tr className="subtle" style={{ textAlign: "left" }}>
                           <th style={{ padding: "4px 6px" }}>Label</th>
-                          <th style={{ padding: "4px 6px" }}>Width</th>
-                          <th style={{ padding: "4px 6px" }}>Height</th>
-                          <th style={{ padding: "4px 6px" }}>Cost per sheet</th>
+                          <th style={{ padding: "4px 6px" }}>Width (mm)</th>
+                          {matType === "roll" && <th style={{ padding: "4px 6px" }}>Length (m)</th>}
+                          {matType === "sheet" && <th style={{ padding: "4px 6px" }}>Height (mm)</th>}
+                          <th style={{ padding: "4px 6px" }}>{matType === "roll" ? "Cost per lm (£)" : "Cost per sheet (£)"}</th>
                           <th style={{ padding: "4px 6px" }}>Active</th>
                           <th style={{ padding: "4px 6px", width: 44, textAlign: "right" }}></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sizes.map((s, index) => (
+                        {sortedSizes.map((s, index) => (
                           <tr
                             key={s.id}
                             style={{ borderBottom: "1px solid #eee", background: index % 2 === 0 ? "#fff" : "#f6f6f6", cursor: "pointer" }}
@@ -759,16 +843,19 @@ export default function MaterialsPage() {
                               {s.label}
                               {!s.active && <span className="subtle"> (inactive)</span>}
                             </td>
-                            <td style={{ padding: "4px 6px" }}>{s.width_mm} mm</td>
-                            <td style={{ padding: "4px 6px" }}>{s.height_mm} mm</td>
+                            <td style={{ padding: "4px 6px" }}>{s.width_mm}</td>
+                            {matType === "roll" && <td style={{ padding: "4px 6px" }}>{s.length_m ?? "—"}</td>}
+                            {matType === "sheet" && <td style={{ padding: "4px 6px" }}>{s.height_mm ?? "—"}</td>}
                             <td style={{ padding: "4px 6px" }}>
-                              {s.cost_per_sheet_gbp != null ? `£${s.cost_per_sheet_gbp}` : "—"}
+                              {matType === "roll"
+                                ? (s.cost_per_lm_gbp != null ? `£${s.cost_per_lm_gbp}` : "—")
+                                : (s.cost_per_sheet_gbp != null ? `£${s.cost_per_sheet_gbp}` : "—")}
                             </td>
                             <td style={{ padding: "4px 6px" }}>{s.active ? "Yes" : "No"}</td>
                             <td style={{ padding: "4px 6px", textAlign: "right" }} onDoubleClick={(e) => e.stopPropagation()}>
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); deleteSizeRow(s); }}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSizeRow(s); }}
                                 title="Delete size"
                                 style={{ padding: "4px 6px", lineHeight: 1 }}
                               >
@@ -780,8 +867,10 @@ export default function MaterialsPage() {
                       </tbody>
                     </table>
                   </div>
-                  {sizes.length === 0 && !sizesLoading && (
-                    <div className="subtle" style={{ marginTop: 8, fontSize: 14 }}>No sizes. Add sheet sizes with dimensions and cost per sheet.</div>
+                  {sortedSizes.length === 0 && !sizesLoading && (
+                    <div className="subtle" style={{ marginTop: 8, fontSize: 14 }}>
+                      {matType === "roll" ? "No roll widths. Add widths (e.g. 1200, 1370, 1600 mm) with cost per lm." : "No sizes. Add sheet sizes with dimensions and cost per sheet."}
+                    </div>
                   )}
                 </>
               )}
@@ -1001,7 +1090,7 @@ export default function MaterialsPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeModal}>Cancel</button>
+              <button type="button" onClick={closeMaterialModal}>Cancel</button>
               <button
                 type="button"
                 className="primary"
@@ -1021,18 +1110,26 @@ export default function MaterialsPage() {
 
       <Modal
         open={sizeModalOpen}
-        title={editingSize ? "Edit Size" : "Add Size"}
-        onClose={() => { setSizeModalOpen(false); setEditingSize(null); }}
+        title={editingSize ? (matType === "roll" ? "Edit Roll Width" : "Edit Size") : (matType === "roll" ? "Add Roll Width" : "Add Size")}
+        onClose={closeSizeModal}
+        wide
         zIndex={10000}
       >
-        <div style={{ display: "grid", gap: 12 }}>
+        <form
+          style={{ display: "grid", gap: 12 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            saveSize();
+          }}
+        >
           <div className="row">
             <div className="col">
               <label className="subtle">Label</label>
               <input
                 value={sizeLabel}
                 onChange={(e) => setSizeLabel(e.target.value)}
-                placeholder="e.g. 1220×2440"
+                placeholder={matType === "roll" ? "e.g. 1200mm" : "e.g. 1220×2440"}
               />
             </div>
           </div>
@@ -1043,44 +1140,64 @@ export default function MaterialsPage() {
                 type="number"
                 value={sizeWidthMm || ""}
                 onChange={(e) => setSizeWidthMm(num(e.target.value, 0))}
+                placeholder={matType === "roll" ? "e.g. 1200, 1370, 1600" : ""}
               />
             </div>
+            {matType === "roll" && (
+              <div className="col">
+                <label className="subtle">Length (m)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sizeLengthM || ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSizeLengthM(v === "" ? "" : num(v, 0));
+                  }}
+                  placeholder="e.g. 20, 50"
+                />
+              </div>
+            )}
+            {matType === "sheet" && (
+              <div className="col">
+                <label className="subtle">Height (mm)</label>
+                <input
+                  type="number"
+                  value={sizeHeightMm || ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSizeHeightMm(v === "" ? "" : num(v, 0));
+                  }}
+                />
+              </div>
+            )}
             <div className="col">
-              <label className="subtle">Height (mm)</label>
-              <input
-                type="number"
-                value={sizeHeightMm || ""}
-                onChange={(e) => setSizeHeightMm(num(e.target.value, 0))}
-              />
-            </div>
-            <div className="col">
-              <label className="subtle">Cost per sheet (£)</label>
+              <label className="subtle">{matType === "roll" ? "Cost per lm (£)" : "Cost per sheet (£)"}</label>
               <input
                 type="number"
                 step="0.01"
-                value={sizeCostPerSheet === "" ? "" : sizeCostPerSheet}
+                value={matType === "roll" ? (sizeCostPerLm === "" ? "" : sizeCostPerLm) : (sizeCostPerSheet === "" ? "" : sizeCostPerSheet)}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setSizeCostPerSheet(v === "" ? "" : num(v, 0));
+                  if (matType === "roll") setSizeCostPerLm(v === "" ? "" : num(v, 0));
+                  else setSizeCostPerSheet(v === "" ? "" : num(v, 0));
                 }}
                 placeholder="Optional"
               />
             </div>
           </div>
-          <div className="row">
-            <div className="col">
-              <label className="subtle">Sort order</label>
-              <input
-                type="number"
-                value={sizeSortOrder}
-                onChange={(e) => setSizeSortOrder(num(e.target.value, 0))}
-              />
-            </div>
-            <div className="col" style={{ display: "flex", alignItems: "flex-end" }}>
-              <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input type="checkbox" checked={sizeActive} onChange={(e) => setSizeActive(e.target.checked)} />
+          <div className="row" style={{ alignItems: "flex-start" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: "0 0 auto", minWidth: 0 }}>
+              <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: 0 }}>
+                <input type="checkbox" checked={sizeActive} onChange={(e) => setSizeActive(e.target.checked)} style={{ margin: 0 }} />
                 Active
               </label>
+              {matType === "roll" && (
+                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", whiteSpace: "nowrap", margin: 0 }}>
+                  <input type="checkbox" checked={sizeCustomLengthAvailable} onChange={(e) => setSizeCustomLengthAvailable(e.target.checked)} style={{ margin: 0 }} />
+                  Custom length available in PO
+                </label>
+              )}
             </div>
           </div>
           {err && sizeModalOpen && (
@@ -1089,19 +1206,19 @@ export default function MaterialsPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <div>
               {editingSize && (
-                <button type="button" className="danger" onClick={deleteSizeInModal}>
+                <button type="button" className="danger" onClick={(e) => { e.preventDefault(); deleteSizeInModal(); }}>
                   Delete
                 </button>
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={() => { setSizeModalOpen(false); setEditingSize(null); }}>Cancel</button>
-              <button type="button" className="primary" onClick={saveSize} disabled={!sizeLabel.trim()}>
+              <button type="button" onClick={closeSizeModal}>Cancel</button>
+              <button type="submit" className="primary" disabled={!sizeLabel.trim()}>
                 {editingSize ? "Save" : "Create"}
               </button>
             </div>
           </div>
-        </div>
+        </form>
       </Modal>
     </div>
   );

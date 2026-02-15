@@ -77,9 +77,41 @@ export default function SuppliersPage() {
     setModalOpen(true);
   }
 
-  function closeModal() {
+  function isSupplierFormDirty(): boolean {
+    if (!editing) return false;
+    return (
+      (name || "").trim() !== (editing.name || "").trim() ||
+      (email || "").trim() !== (editing.email || "").trim() ||
+      (phone || "").trim() !== (editing.phone || "").trim() ||
+      (website || "").trim() !== (editing.website || "").trim() ||
+      (contactPerson || "").trim() !== (editing.contact_person || "").trim() ||
+      (accountsEmail || "").trim() !== (editing.accounts_email || "").trim() ||
+      (accountRef || "").trim() !== (editing.account_ref || "").trim() ||
+      (address || "").trim() !== (editing.address || "").trim() ||
+      (city || "").trim() !== (editing.city || "").trim() ||
+      (postcode || "").trim() !== (editing.postcode || "").trim() ||
+      (country || "").trim() !== (editing.country || "").trim() ||
+      Number(lead) !== Number(editing.lead_time_days_default || 0) ||
+      (notes || "").trim() !== (editing.notes || "").trim() ||
+      active !== !!editing.active
+    );
+  }
+
+  function doCloseModal() {
     setModalOpen(false);
     setEditing(null);
+  }
+
+  function closeModal() {
+    if (modalOpen && editing && isSupplierFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseModal();
+        return;
+      }
+      saveSupplier();
+      return;
+    }
+    doCloseModal();
   }
 
   async function load() {
@@ -175,7 +207,7 @@ export default function SuppliersPage() {
         await api("/api/suppliers", { method: "POST", body: JSON.stringify(payload) });
       }
 
-      closeModal();
+      doCloseModal();
       await load();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -218,7 +250,7 @@ export default function SuppliersPage() {
   async function handleToggleActiveInModal() {
     if (!editing) return;
     const ok = await toggleActive(editing);
-    if (ok) closeModal();
+    if (ok) doCloseModal();
   }
 
   async function handleDeleteInModal() {
@@ -230,7 +262,7 @@ export default function SuppliersPage() {
       return;
     }
     const deleted = await del(editing);
-    if (deleted) closeModal();
+    if (deleted) doCloseModal();
   }
 
   return (

@@ -27,6 +27,7 @@ class Material(Base, TimestampMixin):
     cost_per_lm_gbp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     roll_width_mm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     min_billable_lm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    custom_length_available: Mapped[bool] = mapped_column(Boolean, default=False)
 
     waste_pct_default: Mapped[float] = mapped_column(Float, default=0.05)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

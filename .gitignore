@@ -24,3 +24,4 @@ build/
 
 # Uploads (if generated files should not be committed)
 backend/uploads/
+.cursor/

@@ -161,11 +161,82 @@ export default function AdminMachinesPage() {
     loadRates(m.id);
   }
 
-  function closeModal() {
+  function isMachineFormDirty(): boolean {
+    if (!editing) return false;
+    const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
+    const prevSheetW = (prevMeta as any).sheet_max_width_mm;
+    const prevSheetH = (prevMeta as any).sheet_max_height_mm;
+    const prevRollW = (prevMeta as any).roll_max_width_mm;
+    return (
+      (name || "").trim() !== (editing.name || "").trim() ||
+      category !== (editing.category || "printer_sheet") ||
+      (process || "").trim() !== (editing.process || "").trim() ||
+      active !== !!editing.active ||
+      (notes || "").trim() !== (editing.notes || "").trim() ||
+      (sheetMaxWidthMm || "") !== String(prevSheetW ?? "") ||
+      (sheetMaxHeightMm || "") !== String(prevSheetH ?? "") ||
+      (rollMaxWidthMm || "") !== String(prevRollW ?? "") ||
+      JSON.stringify(formToMeta()) !== JSON.stringify(prevMeta)
+    );
+  }
+
+  function isRateFormDirty(): boolean {
+    if (!editingRate) return false;
+    return (
+      (rateOperationKey || "").trim() !== (editingRate.operation_key || "").trim() ||
+      rateUnit !== (editingRate.unit || "sqm") ||
+      rateCostPerUnit !== (editingRate.cost_per_unit_gbp ?? 0) ||
+      rateSetupMinutes !== (editingRate.setup_minutes ?? 0) ||
+      rateSetupCost !== (editingRate.setup_cost_gbp ?? 0) ||
+      rateMinCharge !== (editingRate.min_charge_gbp ?? 0) ||
+      rateActive !== !!editingRate.active ||
+      (rateNotes || "").trim() !== (editingRate.notes || "").trim()
+    );
+  }
+
+  function doCloseModal() {
     setModalOpen(false);
     setEditing(null);
     setRateModalOpen(false);
     setEditingRate(null);
+  }
+
+  function closeModal() {
+    if (rateModalOpen && editingRate && isRateFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        setRateModalOpen(false);
+        setEditingRate(null);
+        return;
+      }
+      saveRate();
+      return;
+    }
+    if (modalOpen && editing && isMachineFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseModal();
+        return;
+      }
+      saveMachine();
+      return;
+    }
+    doCloseModal();
+  }
+
+  function doCloseRateModal() {
+    setRateModalOpen(false);
+    setEditingRate(null);
+  }
+
+  function closeRateModal() {
+    if (rateModalOpen && editingRate && isRateFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseRateModal();
+        return;
+      }
+      saveRate();
+      return;
+    }
+    doCloseRateModal();
   }
 
   async function loadRates(machineId: string) {
@@ -227,7 +298,7 @@ export default function AdminMachinesPage() {
       } else {
         await api("/api/machines", { method: "POST", body: JSON.stringify(payload) });
       }
-      closeModal();
+      doCloseModal();
       await load();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -259,7 +330,7 @@ export default function AdminMachinesPage() {
     setErr("");
     try {
       await api(`/api/machines/${editing.id}`, { method: "DELETE" });
-      closeModal();
+      doCloseModal();
       await load();
     } catch (e: any) {
       const res = (e as any)?.body;
@@ -327,8 +398,7 @@ export default function AdminMachinesPage() {
           }),
         });
       }
-      setRateModalOpen(false);
-      setEditingRate(null);
+      doCloseRateModal();
       await loadRates(editing.id);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -653,7 +723,7 @@ export default function AdminMachinesPage() {
         </div>
       </Modal>
 
-      <Modal open={rateModalOpen} title={editingRate ? "Edit Rate" : "Add Rate"} onClose={() => { setRateModalOpen(false); setEditingRate(null); }}>
+      <Modal open={rateModalOpen} title={editingRate ? "Edit Rate" : "Add Rate"} onClose={closeRateModal}>
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
             <div className="col">
@@ -722,7 +792,7 @@ export default function AdminMachinesPage() {
             Active
           </label>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={() => { setRateModalOpen(false); setEditingRate(null); }}>Cancel</button>
+            <button type="button" onClick={closeRateModal}>Cancel</button>
             <button type="button" className="primary" onClick={saveRate} disabled={!rateOperationKey.trim()}>
               {editingRate ? "Save" : "Create"}
             </button>

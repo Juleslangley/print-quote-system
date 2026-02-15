@@ -106,6 +106,8 @@ def seed_dev(db: Session = Depends(get_db)):
     upsert_supplier(db, "Amari Digital Supplies", website="", lead_time_days_default=1)
     upsert_supplier(db, "Spandex", website="", lead_time_days_default=2)
     upsert_supplier(db, "Antalis", website="", lead_time_days_default=2)
+    db.flush()
+    amari = db.query(Supplier).filter(Supplier.name == "Amari Digital Supplies").first()
 
     # link Demo Customer to Standard Trade margin profile if unset
     std = db.query(MarginProfile).filter(MarginProfile.name == "Standard Trade").first()
@@ -120,6 +122,7 @@ def seed_dev(db: Session = Depends(get_db)):
         "3mm Foamex 1220x2440",
         type="sheet",
         supplier="Generic",
+        supplier_id=amari.id if amari else None,
         cost_per_sheet_gbp=18.00,
         sheet_width_mm=1220,
         sheet_height_mm=2440,
@@ -130,6 +133,7 @@ def seed_dev(db: Session = Depends(get_db)):
         "Monomeric Vinyl 1370",
         type="roll",
         supplier="Generic",
+        supplier_id=amari.id if amari else None,
         cost_per_lm_gbp=2.20,
         roll_width_mm=1370,
         min_billable_lm=2.0,

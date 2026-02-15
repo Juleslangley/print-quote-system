@@ -105,11 +105,123 @@ export default function CustomersPage() {
     if (c.id) loadUsage(c.id);
   }
 
-  function closeModal() {
+  function isCustomerFormDirty(): boolean {
+    if (!editing) return false;
+    const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
+    let prevMetaStr = "{}";
+    try {
+      prevMetaStr = JSON.stringify(prevMeta, null, 2);
+    } catch {
+      prevMetaStr = "{}";
+    }
+    return (
+      (name || "").trim() !== (editing.name || "").trim() ||
+      (email || "").trim() !== (editing.email || "").trim() ||
+      (phone || "").trim() !== (editing.phone || "").trim() ||
+      (website || "").trim() !== (editing.website || "").trim() ||
+      (vatNumber || "").trim() !== (editing.vat_number || "").trim() ||
+      (accountRef || "").trim() !== (editing.account_ref || "").trim() ||
+      (notes || "").trim() !== (editing.notes || "").trim() ||
+      (billingName || "").trim() !== (editing.billing_name || "").trim() ||
+      (billingEmail || "").trim() !== (editing.billing_email || "").trim() ||
+      (billingPhone || "").trim() !== (editing.billing_phone || "").trim() ||
+      (billingAddress || "").trim() !== (editing.billing_address || "").trim() ||
+      active !== !!editing.active ||
+      (metaJson || "{}").trim() !== prevMetaStr
+    );
+  }
+
+  function isContactFormDirty(): boolean {
+    if (!editingContact) return false;
+    return (
+      (cFirstName || "").trim() !== (editingContact.first_name || "").trim() ||
+      (cLastName || "").trim() !== (editingContact.last_name || "").trim() ||
+      (cName || "").trim() !== (editingContact.name || "").trim() ||
+      (cJobTitle || "").trim() !== (editingContact.job_title || "").trim() ||
+      (cDepartment || "").trim() !== (editingContact.department || "").trim() ||
+      (cEmail || "").trim() !== (editingContact.email || "").trim() ||
+      (cPhone || "").trim() !== (editingContact.phone || "").trim() ||
+      (cMobilePhone || "").trim() !== (editingContact.mobile_phone || "").trim() ||
+      (cRole || "").trim() !== (editingContact.role || "").trim() ||
+      (cNotes || "").trim() !== (editingContact.notes || "").trim() ||
+      cIsPrimary !== !!editingContact.is_primary ||
+      cActive !== !!editingContact.active ||
+      Number(cSortOrder) !== Number(editingContact.sort_order || 0)
+    );
+  }
+
+  function isMethodFormDirty(): boolean {
+    if (!editingMethod) return false;
+    return (
+      mKind !== (editingMethod.kind || "other") ||
+      (mLabel || "").trim() !== (editingMethod.label || "").trim() ||
+      (mValue || "").trim() !== (editingMethod.value || "").trim() ||
+      mIsPrimary !== !!editingMethod.is_primary ||
+      mCanSms !== !!editingMethod.can_sms ||
+      mCanWhatsapp !== !!editingMethod.can_whatsapp ||
+      mActive !== !!editingMethod.active ||
+      Number(mSortOrder) !== Number(editingMethod.sort_order || 0)
+    );
+  }
+
+  function doCloseModal() {
     setContactModalOpen(false);
     setEditingContact(null);
     setModalOpen(false);
     setEditing(null);
+  }
+
+  function closeModal() {
+    if (modalOpen && editing && isCustomerFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseModal();
+        return;
+      }
+      saveCustomer();
+      return;
+    }
+    doCloseModal();
+  }
+
+  function doCloseContactModal() {
+    setMethodModalOpen(false);
+    setContactModalOpen(false);
+    setEditingContact(null);
+    setContactMethods([]);
+    if (editing?.id) loadContacts(editing.id);
+  }
+
+  function closeContactModal() {
+    if (contactModalOpen && editingContact && isContactFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseContactModal();
+        return;
+      }
+      saveContact();
+      return;
+    }
+    doCloseContactModal();
+  }
+
+  function doCloseMethodModal() {
+    setMethodModalOpen(false);
+    setEditingMethod(null);
+    if (editingContact?.id) {
+      loadContactMethods(editingContact.id);
+      loadMethodsForContacts(contacts.map((c) => c.id));
+    }
+  }
+
+  function closeMethodModal() {
+    if (methodModalOpen && editingMethod && isMethodFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseMethodModal();
+        return;
+      }
+      saveMethod();
+      return;
+    }
+    doCloseMethodModal();
   }
 
   async function load() {
@@ -226,7 +338,7 @@ export default function CustomersPage() {
       } else {
         await api("/api/customers", { method: "POST", body: JSON.stringify(payload) });
       }
-      closeModal();
+      doCloseModal();
       await load();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -263,13 +375,13 @@ export default function CustomersPage() {
   async function handleToggleActiveInModal() {
     if (!editing) return;
     const ok = await toggleActive(editing);
-    if (ok) closeModal();
+    if (ok) doCloseModal();
   }
 
   async function handleDeleteInModal() {
     if (!editing) return;
     const deleted = await del(editing);
-    if (deleted) closeModal();
+    if (deleted) doCloseModal();
   }
 
   function resetContactForm() {
@@ -339,14 +451,6 @@ export default function CustomersPage() {
     if (contact.id) loadContactMethods(contact.id);
   }
 
-  function closeContactModal() {
-    setMethodModalOpen(false);
-    setContactModalOpen(false);
-    setEditingContact(null);
-    setContactMethods([]);
-    if (editing?.id) loadContacts(editing.id);
-  }
-
   function openNewMethod(kind: "phone" | "email" | "whatsapp" | "other") {
     setErr("");
     setEditingMethod(null);
@@ -375,15 +479,6 @@ export default function CustomersPage() {
     setMethodModalOpen(true);
   }
 
-  function closeMethodModal() {
-    setMethodModalOpen(false);
-    setEditingMethod(null);
-    if (editingContact?.id) {
-      loadContactMethods(editingContact.id);
-      loadMethodsForContacts(contacts.map((c) => c.id));
-    }
-  }
-
   async function saveMethod() {
     if (!editingContact?.id) return;
     setErr("");
@@ -409,7 +504,7 @@ export default function CustomersPage() {
           body: JSON.stringify({ contact_id: editingContact.id, ...base }),
         });
       }
-      closeMethodModal();
+      doCloseMethodModal();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -421,7 +516,7 @@ export default function CustomersPage() {
     setErr("");
     try {
       await api(`/api/customer-contact-methods/${editingMethod.id}`, { method: "DELETE" });
-      closeMethodModal();
+      doCloseMethodModal();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -465,7 +560,7 @@ export default function CustomersPage() {
           body: JSON.stringify({ customer_id: editing.id, ...base }),
         });
       }
-      closeContactModal();
+      doCloseContactModal();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
@@ -477,7 +572,7 @@ export default function CustomersPage() {
     setErr("");
     try {
       await api(`/api/customer-contacts/${editingContact.id}`, { method: "DELETE" });
-      closeContactModal();
+      doCloseContactModal();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }

@@ -8,6 +8,7 @@ from app.models.quote import Quote, QuoteItem
 from app.models.customer import Customer
 from app.models.template import ProductTemplate
 from app.models.material import Material
+from app.models.material_size import MaterialSize
 from app.models.machine import Machine
 from app.models.rate import Rate
 from app.models.operation import Operation
@@ -18,6 +19,36 @@ from app.api.permissions import require_admin, require_sales, require_prod_or_be
 from app.pricing.engine import calculate_item, price_item_with_policy
 
 router = APIRouter()
+
+
+def _material_for_pricing(m: Material, db: Session) -> dict:
+    """Build material dict for pricing. For roll materials with sizes, use first roll width."""
+    base = {
+        "type": m.type,
+        "waste_pct_default": m.waste_pct_default,
+        "cost_per_sheet_gbp": m.cost_per_sheet_gbp,
+        "sheet_width_mm": m.sheet_width_mm,
+        "sheet_height_mm": m.sheet_height_mm,
+        "cost_per_lm_gbp": m.cost_per_lm_gbp,
+        "roll_width_mm": m.roll_width_mm,
+        "min_billable_lm": m.min_billable_lm,
+    }
+    if m.type == "roll":
+        first_size = (
+            db.query(MaterialSize)
+            .filter(
+                MaterialSize.material_id == m.id,
+                MaterialSize.active == True,
+                MaterialSize.cost_per_lm_gbp.is_not(None),
+            )
+            .order_by(MaterialSize.sort_order.asc(), MaterialSize.width_mm.asc())
+            .first()
+        )
+        if first_size:
+            base["roll_width_mm"] = first_size.width_mm
+            base["cost_per_lm_gbp"] = first_size.cost_per_lm_gbp
+    return base
+
 
 def next_quote_number() -> str:
     import time
@@ -173,19 +204,13 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
         template_payload = {"category": t.category, "rules": dict(t.rules or {})}
         template_payload["rules"]["finish_blocks"] = finish_blocks
 
+        # Build material dict: for roll, use first size if material has roll widths
+        material_dict = _material_for_pricing(m, db)
+
         # Recalc COSTS from engine using current item geometry
         calc = calculate_item(
             template=template_payload,
-            material={
-                "type": m.type,
-                "waste_pct_default": m.waste_pct_default,
-                "cost_per_sheet_gbp": m.cost_per_sheet_gbp,
-                "sheet_width_mm": m.sheet_width_mm,
-                "sheet_height_mm": m.sheet_height_mm,
-                "cost_per_lm_gbp": m.cost_per_lm_gbp,
-                "roll_width_mm": m.roll_width_mm,
-                "min_billable_lm": m.min_billable_lm,
-            },
+            material=material_dict,
             rates_by_type=item_rates,
             item_input={
                 "template_id": item.template_id,
@@ -298,18 +323,10 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
     template_payload = {"category": t.category, "rules": dict(t.rules or {})}
     template_payload["rules"]["finish_blocks"] = finish_blocks
 
+    material_dict = _material_for_pricing(m, db)
     calc = calculate_item(
         template=template_payload,
-        material={
-            "type": m.type,
-            "waste_pct_default": m.waste_pct_default,
-            "cost_per_sheet_gbp": m.cost_per_sheet_gbp,
-            "sheet_width_mm": m.sheet_width_mm,
-            "sheet_height_mm": m.sheet_height_mm,
-            "cost_per_lm_gbp": m.cost_per_lm_gbp,
-            "roll_width_mm": m.roll_width_mm,
-            "min_billable_lm": m.min_billable_lm,
-        },
+        material=material_dict,
         rates_by_type=item_rates,
         item_input=payload.model_dump(),
     )

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
@@ -54,7 +54,7 @@ type POLine = {
 };
 
 type Material = { id: string; name: string; type: string; supplier_id: string | null; nominal_code?: string; supplier_product_code?: string; cost_per_sheet_gbp?: number | null; cost_per_lm_gbp?: number | null };
-type MaterialSize = { id: string; material_id: string; label: string; width_mm: number; height_mm: number; cost_per_sheet_gbp: number | null };
+type MaterialSize = { id: string; material_id: string; label: string; width_mm: number; height_mm: number | null; cost_per_sheet_gbp: number | null; cost_per_lm_gbp: number | null; length_m: number | null; custom_length_available?: boolean };
 
 export default function PurchaseOrderDetailPage() {
   const params = useParams();
@@ -79,6 +79,7 @@ export default function PurchaseOrderDetailPage() {
   const [lineQty, setLineQty] = useState(1);
   const [lineUom, setLineUom] = useState("sheet");
   const [lineUnitCost, setLineUnitCost] = useState(0);
+  const [useCustomLength, setUseCustomLength] = useState(false);
 
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiveQtys, setReceiveQtys] = useState<Record<string, number>>({});
@@ -136,20 +137,31 @@ export default function PurchaseOrderDetailPage() {
       .catch(() => setMaterialsById({}));
   }, [id]);
 
-  const materialIdFromUrl = searchParams.get("materialId");
+  const [materialIdFromUrl, setMaterialIdFromUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!id || !po || !materialIdFromUrl) return;
+    const fromSearch = searchParams.get("materialId");
+    const fromWindow =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("materialId")
+        : null;
+    setMaterialIdFromUrl(fromSearch || fromWindow);
+  }, [searchParams]);
+  const materialIdOpenDoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!id || !materialIdFromUrl) return;
+    if (materialIdOpenDoneRef.current === materialIdFromUrl) return;
+    materialIdOpenDoneRef.current = materialIdFromUrl;
+    setAddLineOpen(true);
     let cancelled = false;
     api<Material>(`/api/materials/${materialIdFromUrl}`)
       .then((m) => {
         if (cancelled || !m) return;
         setSelectedMaterial(m);
         setMaterialSearch(m.name || "");
-        setAddLineOpen(true);
       })
-      .catch(() => { if (!cancelled) setAddLineOpen(true); });
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [id, po, materialIdFromUrl]);
+  }, [id, materialIdFromUrl]);
 
   useEffect(() => {
     if (lines.length === 0) {
@@ -204,12 +216,18 @@ export default function PurchaseOrderDetailPage() {
     setSizesLoading(true);
     api<MaterialSize[]>(`/api/materials/${selectedMaterial.id}/sizes`)
       .then((arr) => {
-        setSizes(arr || []);
-        setSelectedSize(null);
+        const sizeList = arr || [];
+        setSizes(sizeList);
+        const isFromMaterialsOrder = !!materialIdFromUrl && selectedMaterial?.id === materialIdFromUrl;
+        if (isFromMaterialsOrder && sizeList.length === 1) {
+          setSelectedSize(sizeList[0]);
+        } else {
+          setSelectedSize(null);
+        }
       })
       .catch(() => setSizes([]))
       .finally(() => setSizesLoading(false));
-  }, [selectedMaterial?.id]);
+  }, [selectedMaterial?.id, materialIdFromUrl]);
 
   useEffect(() => {
     if (!selectedMaterial) return;
@@ -221,10 +239,27 @@ export default function PurchaseOrderDetailPage() {
       setLineUnitCost(selectedSize.cost_per_sheet_gbp ?? 0);
       setLineUom("sheet");
     } else if (selectedMaterial.type === "roll") {
-      setLineUnitCost(selectedMaterial.cost_per_lm_gbp ?? 0);
-      setLineUom("lm");
+      const costPerLm = selectedSize?.cost_per_lm_gbp ?? selectedMaterial.cost_per_lm_gbp ?? 0;
+      const lengthM = selectedSize?.length_m ?? null;
+      const customAllowed = !!(selectedSize as MaterialSize).custom_length_available;
+      const useRolls = selectedSize && lengthM != null && lengthM > 0 && (!customAllowed || !useCustomLength);
+      if (useRolls) {
+        setLineUom("roll");
+        setLineUnitCost(costPerLm * lengthM);
+        setLineQty(1);
+      } else {
+        setLineUnitCost(costPerLm);
+        setLineUom("lm");
+        setLineQty(lengthM ?? 1);
+      }
     }
-  }, [selectedMaterial, selectedSize]);
+  }, [selectedMaterial, selectedSize, useCustomLength]);
+
+  useEffect(() => {
+    if (selectedSize && !(selectedSize as MaterialSize).custom_length_available) {
+      setUseCustomLength(false);
+    }
+  }, [selectedSize]);
 
   const supplierName = po ? (po.supplier?.name ?? suppliers.find((s) => s.id === po.supplier_id)?.name ?? po.supplier_id) : "";
   const createdByLabel = po?.created_by ? (po.created_by.full_name?.trim() || po.created_by.email) : null;
@@ -239,8 +274,25 @@ export default function PurchaseOrderDetailPage() {
     setLineQty(1);
     setLineUom("sheet");
     setLineUnitCost(0);
+    setUseCustomLength(false);
     setSizes([]);
     setAddLineOpen(true);
+  }
+
+  function isAddLineFormDirty(): boolean {
+    return !!(lineDesc?.trim() || selectedMaterial || lineSupplierCode?.trim());
+  }
+
+  function closeAddLineModal() {
+    if (addLineOpen && isAddLineFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        setAddLineOpen(false);
+        return;
+      }
+      saveLine();
+      return;
+    }
+    setAddLineOpen(false);
   }
 
   async function saveLine() {
@@ -279,6 +331,34 @@ export default function PurchaseOrderDetailPage() {
     setEditLineOpen(true);
   }
 
+  function isEditLineFormDirty(): boolean {
+    if (!editingLine) return false;
+    return (
+      (editLineDesc || "").trim() !== (editingLine.description || "").trim() ||
+      (editLineSupplierCode || "").trim() !== (editingLine.supplier_product_code || "").trim() ||
+      editLineQty !== editingLine.qty ||
+      editLineUom !== (editingLine.uom || "sheet") ||
+      editLineUnitCost !== (editingLine.unit_cost_gbp ?? 0)
+    );
+  }
+
+  function doCloseEditLineModal() {
+    setEditLineOpen(false);
+    setEditingLine(null);
+  }
+
+  function closeEditLineModal() {
+    if (editLineOpen && editingLine && isEditLineFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseEditLineModal();
+        return;
+      }
+      saveEditLine();
+      return;
+    }
+    doCloseEditLineModal();
+  }
+
   async function saveEditLine() {
     if (!editingLine) return;
     setErr("");
@@ -293,8 +373,7 @@ export default function PurchaseOrderDetailPage() {
           unit_cost_gbp: editLineUnitCost,
         }),
       });
-      setEditLineOpen(false);
-      setEditingLine(null);
+      doCloseEditLineModal();
       await loadLines();
       await loadPO();
     } catch (e: any) {
@@ -592,39 +671,46 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
-      <Modal open={addLineOpen} title="Add line" onClose={() => setAddLineOpen(false)} wide>
+      <Modal open={addLineOpen} title="Add line" onClose={closeAddLineModal} wide>
         <div style={{ display: "grid", gap: 12 }}>
-          <div>
-            <label className="subtle">Material (search)</label>
-            <input
-              value={materialSearch}
-              onChange={(e) => setMaterialSearch(e.target.value)}
-              placeholder="Type to search materials..."
-              style={{ width: "100%", marginTop: 4 }}
-            />
-            {materials.length > 0 && (
-              <ul style={{ margin: "4px 0 0", padding: "8px 0 0", listStyle: "none", borderTop: "1px solid #eee" }}>
-                {materials.slice(0, 8).map((m) => (
-                  <li key={m.id}>
-                    <button
-                      type="button"
-                      style={{ background: selectedMaterial?.id === m.id ? "#e5e5e7" : "transparent", border: "none", padding: "6px 0", cursor: "pointer", width: "100%", textAlign: "left" }}
-                      onClick={() => setSelectedMaterial(m)}
-                    >
-                      {m.name} <span className="subtle">({m.type})</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {materialIdFromUrl && selectedMaterial ? (
+            <div style={{ padding: "10px 12px", background: "#f5f5f7", borderRadius: 10, border: "1px solid #e5e5e7" }}>
+              <div className="subtle" style={{ fontSize: 12, marginBottom: 4 }}>Material (from materials)</div>
+              <div style={{ fontWeight: 600 }}>{selectedMaterial.name} <span className="subtle">({selectedMaterial.type})</span></div>
+            </div>
+          ) : (
+            <div>
+              <label className="subtle">Material (search)</label>
+              <input
+                value={materialSearch}
+                onChange={(e) => setMaterialSearch(e.target.value)}
+                placeholder="Type to search materials..."
+                style={{ width: "100%", marginTop: 4 }}
+              />
+              {materials.length > 0 && (
+                <ul style={{ margin: "4px 0 0", padding: "8px 0 0", listStyle: "none", borderTop: "1px solid #eee" }}>
+                  {materials.slice(0, 8).map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        style={{ background: selectedMaterial?.id === m.id ? "#e5e5e7" : "transparent", border: "none", padding: "6px 0", cursor: "pointer", width: "100%", textAlign: "left" }}
+                        onClick={() => setSelectedMaterial(m)}
+                      >
+                        {m.name} <span className="subtle">({m.type})</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {selectedMaterial && (
             <div>
-              <label className="subtle">Size</label>
+              <label className="subtle">{selectedMaterial.type === "roll" ? "Roll width" : "Size"}</label>
               {sizesLoading ? (
-                <div className="subtle" style={{ marginTop: 4, fontSize: 14 }}>Loading sizes…</div>
+                <div className="subtle" style={{ marginTop: 4, fontSize: 14 }}>Loading…</div>
               ) : sizes.length === 0 ? (
-                <div className="subtle" style={{ marginTop: 4, fontSize: 14 }}>{selectedMaterial.type === "sheet" ? "No sizes defined for this material" : "—"}</div>
+                <div className="subtle" style={{ marginTop: 4, fontSize: 14 }}>{selectedMaterial.type === "sheet" ? "No sizes defined" : "No roll widths defined"}</div>
               ) : (
                 <select
                   value={selectedSize?.id ?? ""}
@@ -633,7 +719,11 @@ export default function PurchaseOrderDetailPage() {
                 >
                   <option value="">—</option>
                   {sizes.map((s) => (
-                    <option key={s.id} value={s.id}>{s.label} ({s.width_mm}×{s.height_mm})</option>
+                    <option key={s.id} value={s.id}>
+                      {selectedMaterial.type === "roll"
+                        ? `${s.label} (${s.width_mm} mm × ${s.length_m ?? "—"}m${s.cost_per_lm_gbp != null ? ` · £${s.cost_per_lm_gbp}/lm` : ""})`
+                        : `${s.label} (${s.width_mm}×${s.height_mm ?? "—"})`}
+                    </option>
                   ))}
                 </select>
               )}
@@ -657,20 +747,43 @@ export default function PurchaseOrderDetailPage() {
             <label className="subtle">Supplier product code (SKU)</label>
             <input value={lineSupplierCode} onChange={(e) => setLineSupplierCode(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
           </div>
+          {(selectedMaterial?.type === "roll" && selectedSize?.length_m != null && (selectedSize as MaterialSize).custom_length_available) && (
+            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+              <input type="checkbox" checked={useCustomLength} onChange={(e) => setUseCustomLength(e.target.checked)} />
+              Use custom length (lm)
+            </label>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <div>
-              <label className="subtle">Qty</label>
-              <input type="number" step="any" value={lineQty} onChange={(e) => setLineQty(parseFloat(e.target.value) || 0)} style={{ width: "100%", marginTop: 4 }} />
+              <label className="subtle">
+                {selectedMaterial?.type === "roll" && selectedSize?.length_m != null && !useCustomLength
+                  ? "Number of rolls"
+                  : "Qty"}
+              </label>
+              <input
+                type="number"
+                step={lineUom === "roll" ? 1 : "any"}
+                min={lineUom === "roll" ? 1 : undefined}
+                value={lineQty}
+                onChange={(e) => setLineQty(parseFloat(e.target.value) || (lineUom === "roll" ? 1 : 0))}
+                style={{ width: "100%", marginTop: 4 }}
+              />
             </div>
             <div>
               <label className="subtle">UOM</label>
-              <select value={lineUom} onChange={(e) => setLineUom(e.target.value)} style={{ width: "100%", marginTop: 4 }}>
-                <option value="sheet">sheet</option>
-                <option value="lm">lm</option>
-                <option value="roll">roll</option>
-                <option value="each">each</option>
-                <option value="pack">pack</option>
-              </select>
+              {selectedMaterial?.type === "roll" && selectedSize?.length_m != null && !useCustomLength ? (
+                <div style={{ marginTop: 4, padding: "8px 12px", background: "#f5f5f5", borderRadius: 6 }}>
+                  roll ({selectedSize.length_m}m each)
+                </div>
+              ) : (
+                <select value={lineUom} onChange={(e) => setLineUom(e.target.value)} style={{ width: "100%", marginTop: 4 }}>
+                  <option value="sheet">sheet</option>
+                  <option value="lm">lm</option>
+                  <option value="roll">roll</option>
+                  <option value="each">each</option>
+                  <option value="pack">pack</option>
+                </select>
+              )}
             </div>
             <div>
               <label className="subtle">Unit cost (£)</label>
@@ -678,13 +791,13 @@ export default function PurchaseOrderDetailPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => setAddLineOpen(false)}>Cancel</button>
+            <button type="button" onClick={closeAddLineModal}>Cancel</button>
             <button type="button" className="primary" onClick={saveLine} disabled={!lineDesc.trim()}>Save line</button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={editLineOpen} title="Edit line" onClose={() => { setEditLineOpen(false); setEditingLine(null); }} wide>
+      <Modal open={editLineOpen} title="Edit line" onClose={closeEditLineModal} wide>
         <div style={{ display: "grid", gap: 12 }}>
           <div>
             <label className="subtle">Description</label>
@@ -716,7 +829,7 @@ export default function PurchaseOrderDetailPage() {
           </div>
           {err && editLineOpen && <div style={{ color: "#c00", fontSize: 14 }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => { setEditLineOpen(false); setEditingLine(null); }}>Cancel</button>
+            <button type="button" onClick={closeEditLineModal}>Cancel</button>
             <button type="button" className="primary" onClick={saveEditLine} disabled={!editLineDesc.trim()}>Save changes</button>
           </div>
         </div>

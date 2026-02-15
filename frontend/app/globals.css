@@ -50,6 +50,12 @@ input, select, textarea {
   background: #fff;
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  min-width: auto;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -83,12 +89,12 @@ button.primary:hover {
 }
 
 button.danger {
-  background: #ff3b30;
+  background: #ff8a8a;
   color: white;
 }
 
 button.danger:hover {
-  background: #e0291f;
+  background: #ff6b6b;
 }
 
 .section {

@@ -74,10 +74,33 @@ export default function AdminUsersPage() {
     setModalOpen(true);
   }
 
-  function closeModal() {
+  function isUserFormDirty(): boolean {
+    if (!editing) return false;
+    const prevMenu = Array.isArray(editing.menu_deny) ? editing.menu_deny : [];
+    return (
+      (fullName || "").trim() !== (editing.full_name ?? "").trim() ||
+      (role || "sales") !== (editing.role ?? "sales") ||
+      active !== !!editing.active ||
+      JSON.stringify([...menuDeny].sort()) !== JSON.stringify([...prevMenu].sort())
+    );
+  }
+
+  function doCloseModal() {
     setModalOpen(false);
     setEditing(null);
     setShowResetPassword(false);
+  }
+
+  function closeModal() {
+    if (modalOpen && editing && isUserFormDirty()) {
+      if (!confirm("Do you wish to save your changes?")) {
+        doCloseModal();
+        return;
+      }
+      saveUser();
+      return;
+    }
+    doCloseModal();
   }
 
   async function load() {
@@ -122,7 +145,7 @@ export default function AdminUsersPage() {
             menu_deny: menuDeny,
           }),
         });
-        closeModal();
+        doCloseModal();
       } else {
         if (!email.trim()) {
           setErr("Email is required");
@@ -138,7 +161,7 @@ export default function AdminUsersPage() {
         const res = await api<{ temp_password?: string }>("/api/users", { method: "POST", body: JSON.stringify(payload) });
         if (res?.temp_password) setTempPasswordShown(res.temp_password);
         else {
-          closeModal();
+          doCloseModal();
           await load();
         }
       }
@@ -322,7 +345,7 @@ export default function AdminUsersPage() {
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <code style={{ flex: 1, padding: 8, background: "#fff", borderRadius: 6 }}>{tempPasswordShown}</code>
                 <button type="button" onClick={copyTempPassword}>Copy</button>
-                <button type="button" className="primary" onClick={async () => { setTempPasswordShown(null); closeModal(); await load(); }}>
+                <button type="button" className="primary" onClick={async () => { setTempPasswordShown(null); doCloseModal(); await load(); }}>
                   Done
                 </button>
               </div>

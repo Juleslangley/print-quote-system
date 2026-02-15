@@ -11,7 +11,10 @@ class MaterialSize(Base, TimestampMixin):
     material_id: Mapped[str] = mapped_column(String, ForeignKey("materials.id"), index=True)
     label: Mapped[str] = mapped_column(String)
     width_mm: Mapped[float] = mapped_column(Float)
-    height_mm: Mapped[float] = mapped_column(Float)
+    height_mm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # null for roll widths
     cost_per_sheet_gbp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_per_lm_gbp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # for roll widths
+    length_m: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # roll length in metres (e.g. 20, 50)
+    custom_length_available: Mapped[bool] = mapped_column(Boolean, default=False)  # allow custom lm in PO for this width
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

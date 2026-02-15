@@ -93,7 +93,12 @@ def list_material_sizes(material_id: str, db: Session = Depends(get_db), _=Depen
     return (
         db.query(MaterialSize)
         .filter(MaterialSize.material_id == material_id)
-        .order_by(MaterialSize.width_mm.asc(), MaterialSize.height_mm.asc())
+        .order_by(
+            MaterialSize.width_mm.asc(),
+            MaterialSize.length_m.asc().nulls_last(),
+            MaterialSize.height_mm.asc().nulls_last(),
+            MaterialSize.sort_order.asc(),
+        )
         .all()
     )
 

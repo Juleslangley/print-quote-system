@@ -19,6 +19,7 @@ class MaterialCreate(BaseModel):
     cost_per_lm_gbp: Optional[float] = None
     roll_width_mm: Optional[float] = None
     min_billable_lm: Optional[float] = None
+    custom_length_available: bool = False
     waste_pct_default: float = 0.05
     active: bool = True  # for admin toggles
     meta: dict = {}
@@ -39,6 +40,7 @@ class MaterialUpdate(BaseModel):
     cost_per_lm_gbp: Optional[float] = None
     roll_width_mm: Optional[float] = None
     min_billable_lm: Optional[float] = None
+    custom_length_available: Optional[bool] = None
     waste_pct_default: Optional[float] = None
     active: Optional[bool] = None
     meta: Optional[dict] = None
@@ -60,6 +62,7 @@ class MaterialOut(BaseModel):
     cost_per_lm_gbp: Optional[float]
     roll_width_mm: Optional[float]
     min_billable_lm: Optional[float]
+    custom_length_available: bool = False
     waste_pct_default: float
     active: bool
     meta: dict = {}

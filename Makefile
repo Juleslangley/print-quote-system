@@ -1,7 +1,7 @@
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 3000
 
-.PHONY: up down reset logs ps health doctor
+.PHONY: up down reset logs ps health doctor e2e
 
 up:
 	docker compose up --build -d
@@ -24,6 +24,10 @@ health:
 	docker compose ps --format json | cat
 
 # Stack readiness: ps + curl backend health + curl frontend; clear PASS/FAIL
+e2e:
+	@echo "Run 'make up' first, then seed (POST /api/seed/dev from browser or curl)."
+	cd frontend && CI=1 npx playwright test
+
 doctor:
 	@echo "=== Docker Compose status ==="
 	@docker compose ps
