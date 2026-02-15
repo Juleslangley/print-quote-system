@@ -16,6 +16,7 @@ from app.core.db import get_db
 from app.api.permissions import require_admin
 from app.models.user import User
 from app.models.supplier import Supplier
+from app.models.employer import Employer
 from app.models.customer import Customer
 from app.models.margin_profile import MarginProfile
 from app.models.machine import Machine
@@ -40,6 +41,7 @@ router = APIRouter()
 BACKUP_TABLES = [
     ("users", User),
     ("suppliers", Supplier),
+    ("employers", Employer),
     ("customers", Customer),
     ("margin_profiles", MarginProfile),
     ("machines", Machine),

@@ -32,6 +32,7 @@ export default function AdminUsersPage() {
     { key: "admin", label: "Admin" },
     { key: "admin.materials", label: "Materials" },
     { key: "admin.suppliers", label: "Suppliers" },
+    { key: "admin.employers", label: "Employers" },
     { key: "admin.machines", label: "Machines" },
     { key: "admin.customers", label: "Customers" },
     { key: "admin.users", label: "Users" },

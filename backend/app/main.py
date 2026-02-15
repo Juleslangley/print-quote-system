@@ -7,7 +7,7 @@ from app.core.db import Base, engine
 import app.models  # noqa: F401 - register all tables
 from app.api import auth, customers, materials, material_sizes, rates, templates, quotes, seed, machines, machine_rates, operations, template_admin
 from app.api import customer_contacts, customer_contact_methods, users
-from app.api import margin_profiles, pricing_rules, suppliers, purchase_orders, purchase_order_lines, backup, health, jobs, packing
+from app.api import margin_profiles, pricing_rules, suppliers, employers, purchase_orders, purchase_order_lines, backup, health, jobs, packing
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ app.include_router(customer_contact_methods.router, prefix="/api", tags=["custom
 app.include_router(materials.router, prefix="/api", tags=["materials"])
 app.include_router(material_sizes.router, prefix="/api", tags=["material-sizes"])
 app.include_router(suppliers.router, prefix="/api", tags=["suppliers"])
+app.include_router(employers.router, prefix="/api", tags=["employers"])
 app.include_router(purchase_orders.router, prefix="/api", tags=["purchase-orders"])
 app.include_router(purchase_order_lines.router, prefix="/api", tags=["purchase-order-lines"])
 app.include_router(rates.router, prefix="/api", tags=["rates"])
