@@ -111,6 +111,21 @@ export default function Nav() {
       ))}
 
       <div style={{ marginLeft: "auto", display: "flex", gap: 14, alignItems: "center" }}>
+        {token && (visibleSet == null || visibleSet.has("admin.overheads") || visibleSet.has("admin")) && (
+          <Link
+            href="/admin/overheads"
+            style={{
+              padding: "8px 14px",
+              borderRadius: 999,
+              fontWeight: 500,
+              background: path?.startsWith("/admin/overhead") ? "#e5e5e7" : "transparent",
+              textDecoration: "none",
+              color: "#1d1d1f",
+            }}
+          >
+            Overheads
+          </Link>
+        )}
         {token && (visibleSet == null || visibleSet.has("admin")) && (
           <Link
             href="/admin"
