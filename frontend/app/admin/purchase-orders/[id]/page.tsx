@@ -15,6 +15,7 @@ type PO = {
   delivery_name: string;
   delivery_address: string;
   notes: string;
+  internal_notes: string;
   subtotal_gbp: number;
   vat_gbp: number;
   total_gbp: number;
@@ -37,15 +38,26 @@ type POLine = {
 
 type Material = { id: string; name: string; type: string; supplier_id: string | null; supplier_product_code?: string; cost_per_sheet_gbp?: number | null; cost_per_lm_gbp?: number | null };
 type MaterialSize = { id: string; material_id: string; label: string; width_mm: number; height_mm: number; cost_per_sheet_gbp: number | null };
+type Supplier = { id: string; name: string; email: string };
 
 export default function PurchaseOrderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
   const [po, setPo] = useState<PO | null>(null);
   const [lines, setLines] = useState<POLine[]>([]);
-  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+
+  const [deliveryName, setDeliveryName] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [poNotes, setPoNotes] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+  const [savingPO, setSavingPO] = useState(false);
+  const [outputOpen, setOutputOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailingPO, setEmailingPO] = useState(false);
 
   const [addLineOpen, setAddLineOpen] = useState(false);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -84,7 +96,7 @@ export default function PurchaseOrderDetailPage() {
 
   async function loadSuppliers() {
     try {
-      const data = await api<any[]>("/api/suppliers");
+      const data = await api<Supplier[]>("/api/suppliers");
       setSuppliers(data ?? []);
     } catch {}
   }
@@ -95,6 +107,14 @@ export default function PurchaseOrderDetailPage() {
     loadLines();
     loadSuppliers();
   }, [id]);
+
+  useEffect(() => {
+    if (!po) return;
+    setDeliveryName(po.delivery_name || "");
+    setDeliveryAddress(po.delivery_address || "");
+    setPoNotes(po.notes || "");
+    setInternalNotes(po.internal_notes || "");
+  }, [po?.id, po?.delivery_name, po?.delivery_address, po?.notes, po?.internal_notes]);
 
   useEffect(() => {
     if (!materialSearch.trim()) {
@@ -145,7 +165,13 @@ export default function PurchaseOrderDetailPage() {
     }
   }, [selectedMaterial, selectedSize]);
 
-  const supplierName = po ? (suppliers.find((s) => s.id === po.supplier_id)?.name ?? po.supplier_id) : "";
+  const supplier = po ? suppliers.find((s) => s.id === po.supplier_id) : null;
+  const supplierName = po ? (supplier?.name ?? po.supplier_id) : "";
+
+  useEffect(() => {
+    if (!supplier?.email) return;
+    setEmailTo((prev) => prev || supplier.email);
+  }, [supplier?.email]);
 
   function openAddLine() {
     setSelectedMaterial(null);
@@ -182,6 +208,100 @@ export default function PurchaseOrderDetailPage() {
       await loadPO();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function fetchPOPdfBlob() {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const res = await fetch(`/api/purchase-orders/${id}.pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error("Failed to load PDF");
+    return await res.blob();
+  }
+
+  async function downloadPOPdf() {
+    try {
+      setErr("");
+      const blob = await fetchPOPdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${po?.po_number || "purchase-order"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setErr(e?.message || "PDF download failed");
+    }
+  }
+
+  async function printPOPdf() {
+    setErr("");
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setErr("Pop-up blocked. Allow pop-ups and try again.");
+      return;
+    }
+    popup.document.write("<p style='font-family:sans-serif;padding:12px'>Preparing purchase order PDF…</p>");
+    try {
+      const blob = await fetchPOPdfBlob();
+      const url = URL.createObjectURL(blob);
+      popup.location.href = url;
+      popup.onload = () => {
+        popup.focus();
+        popup.print();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      };
+    } catch (e: any) {
+      popup.close();
+      setErr(e?.message || "PO print failed");
+    }
+  }
+
+  async function savePO(openOutput = true) {
+    setErr("");
+    setNotice("");
+    setSavingPO(true);
+    try {
+      const updated = await api<PO>(`/api/purchase-orders/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          delivery_name: deliveryName.trim(),
+          delivery_address: deliveryAddress.trim(),
+          notes: poNotes.trim(),
+          internal_notes: internalNotes.trim(),
+        }),
+      });
+      setPo(updated);
+      setNotice("Purchase order saved.");
+      if (openOutput) setOutputOpen(true);
+    } catch (e: any) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setSavingPO(false);
+    }
+  }
+
+  async function emailPO() {
+    const to = emailTo.trim();
+    if (!to) {
+      setErr("Enter an email address before sending.");
+      return;
+    }
+    setErr("");
+    setNotice("");
+    setEmailingPO(true);
+    try {
+      await api(`/api/purchase-orders/${id}/email`, {
+        method: "POST",
+        body: JSON.stringify({ to_email: to }),
+      });
+      setNotice(`Purchase order emailed to ${to}.`);
+      setOutputOpen(false);
+    } catch (e: any) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setEmailingPO(false);
     }
   }
 
@@ -255,26 +375,12 @@ export default function PurchaseOrderDetailPage() {
           <div className="subtle" style={{ marginTop: 4 }}>{supplierName}</div>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" className="primary" onClick={() => savePO(true)} disabled={savingPO}>
+            {savingPO ? "Saving…" : "Save PO"}
+          </button>
           <button
             type="button"
-            onClick={async () => {
-              try {
-                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                const res = await fetch(`/api/purchase-orders/${id}.pdf`, {
-                  headers: token ? { Authorization: `Bearer ${token}` } : {},
-                });
-                if (!res.ok) throw new Error("Failed to load PDF");
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${po.po_number}.pdf`;
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (e: any) {
-                setErr(e?.message || "PDF download failed");
-              }
-            }}
+            onClick={downloadPOPdf}
           >
             Download PDF
           </button>
@@ -289,6 +395,47 @@ export default function PurchaseOrderDetailPage() {
       {err && (
         <div className="card" style={{ borderColor: "#c00", whiteSpace: "pre-wrap", marginBottom: 12 }}>{err}</div>
       )}
+      {notice && (
+        <div className="card" style={{ borderColor: "#86efac", background: "#f0fdf4", whiteSpace: "pre-wrap", marginBottom: 12 }}>
+          {notice}
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span className="subtle" style={{ fontWeight: 600 }}>PO details</span>
+        </div>
+        <div className="row" style={{ marginBottom: 10 }}>
+          <div className="col">
+            <label className="subtle">Supplier</label>
+            <input value={supplierName} disabled style={{ width: "100%", marginTop: 4 }} />
+          </div>
+          <div className="col">
+            <label className="subtle">Supplier email</label>
+            <input value={supplier?.email || "—"} disabled style={{ width: "100%", marginTop: 4 }} />
+          </div>
+        </div>
+        <div className="row" style={{ marginBottom: 10 }}>
+          <div className="col">
+            <label className="subtle">Delivery name</label>
+            <input value={deliveryName} onChange={(e) => setDeliveryName(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+          </div>
+          <div className="col">
+            <label className="subtle">Delivery address</label>
+            <textarea rows={3} value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+          </div>
+        </div>
+        <div className="row">
+          <div className="col">
+            <label className="subtle">Notes (shown to supplier)</label>
+            <textarea rows={3} value={poNotes} onChange={(e) => setPoNotes(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+          </div>
+          <div className="col">
+            <label className="subtle">Internal notes</label>
+            <textarea rows={3} value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+          </div>
+        </div>
+      </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -333,6 +480,33 @@ export default function PurchaseOrderDetailPage() {
           <div><strong>Total</strong> £{po.total_gbp?.toFixed(2)}</div>
         </div>
       </div>
+
+      <Modal open={outputOpen} title={`Output ${po.po_number}`} onClose={() => setOutputOpen(false)}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <p className="subtle" style={{ margin: 0 }}>
+            Purchase order saved. Choose how you want to send this order.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" onClick={printPOPdf}>Print PO</button>
+            <button type="button" onClick={downloadPOPdf}>Download PDF</button>
+          </div>
+          <div>
+            <label className="subtle">Email to</label>
+            <input
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+              placeholder="supplier@example.com"
+              style={{ width: "100%", marginTop: 4 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button type="button" onClick={() => setOutputOpen(false)}>Close</button>
+            <button type="button" className="primary" onClick={emailPO} disabled={emailingPO || !emailTo.trim()}>
+              {emailingPO ? "Sending…" : "Email PO"}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={addLineOpen} title="Add line" onClose={() => setAddLineOpen(false)} wide>
         <div style={{ display: "grid", gap: 12 }}>

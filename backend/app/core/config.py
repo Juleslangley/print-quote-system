@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     PRICING_VERSION: str = "v1.0.0"
     JOB_NO_PREFIX: str = "J"  # e.g. J0001, J0002
     UPLOADS_DIR: str = "uploads"  # relative to backend root or absolute path
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_TIMEOUT_SECONDS: int = 20
 
     class Config:
         env_file = [str(p) for p in _env_files]

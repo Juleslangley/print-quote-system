@@ -1,7 +1,11 @@
+from email.message import EmailMessage
+import smtplib
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.core.db import get_db
+from app.core.config import settings
 from app.api.permissions import require_admin, require_sales
 from app.models.user import User
 from app.models.supplier import Supplier
@@ -17,6 +21,55 @@ from pydantic import BaseModel as PydanticBase
 router = APIRouter()
 
 VAT_RATE = 0.20
+
+
+def _send_po_email(to_email: str, subject: str, body: str, pdf_bytes: bytes, filename: str) -> None:
+    if not settings.SMTP_HOST or not settings.SMTP_FROM_EMAIL:
+        raise HTTPException(
+            status_code=400,
+            detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM_EMAIL.",
+        )
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = settings.SMTP_FROM_EMAIL
+    msg["To"] = to_email
+    msg.set_content(body)
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=filename,
+    )
+
+    try:
+        if settings.SMTP_USE_SSL:
+            with smtplib.SMTP_SSL(
+                host=settings.SMTP_HOST,
+                port=settings.SMTP_PORT,
+                timeout=settings.SMTP_TIMEOUT_SECONDS,
+            ) as smtp:
+                if settings.SMTP_USERNAME:
+                    smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+                smtp.send_message(msg)
+            return
+
+        with smtplib.SMTP(
+            host=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            timeout=settings.SMTP_TIMEOUT_SECONDS,
+        ) as smtp:
+            smtp.ehlo()
+            if settings.SMTP_USE_TLS:
+                smtp.starttls()
+                smtp.ehlo()
+            if settings.SMTP_USERNAME:
+                smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+            smtp.send_message(msg)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to send email: {exc}") from exc
 
 
 def _next_po_number(db: Session) -> str:
@@ -188,6 +241,12 @@ class ReceiveIn(PydanticBase):
     lines: list[ReceiveLineIn]
 
 
+class EmailPOIn(PydanticBase):
+    to_email: str | None = None
+    subject: str | None = None
+    message: str | None = None
+
+
 @router.post("/purchase-orders/{po_id}/status", response_model=PurchaseOrderOut)
 def set_po_status(
     po_id: str,
@@ -251,3 +310,36 @@ def get_po_pdf(
         raise HTTPException(status_code=404, detail="Purchase order not found")
     pdf_bytes = build_po_pdf(db, po)
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={po.po_number}.pdf"})
+
+
+@router.post("/purchase-orders/{po_id}/email")
+def email_po(
+    po_id: str,
+    payload: EmailPOIn,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    supplier = db.query(Supplier).filter(Supplier.id == po.supplier_id).first()
+    recipient = (payload.to_email or (supplier.email if supplier else "")).strip()
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+
+    subject = (payload.subject or "").strip() or f"Purchase Order {po.po_number}"
+    body = (payload.message or "").strip() or (
+        f"Please find attached purchase order {po.po_number}.\n\n"
+        "Regards"
+    )
+    pdf_bytes = build_po_pdf(db, po)
+    _send_po_email(
+        to_email=recipient,
+        subject=subject,
+        body=body,
+        pdf_bytes=pdf_bytes,
+        filename=f"{po.po_number}.pdf",
+    )
+
+    return {"ok": True, "to_email": recipient}
