@@ -12,12 +12,12 @@ router = APIRouter()
 MENU_DEFAULTS_BY_ROLE = {
     "admin": [
         "home", "quotes", "admin",
-        "admin.materials", "admin.suppliers", "admin.machines", "admin.customers", "admin.users",
+        "admin.materials", "admin.suppliers", "admin.employers", "admin.machines", "admin.customers", "admin.users",
         "admin.rates", "admin.operations", "admin.templates", "admin.margins", "admin.purchase_orders",
         "admin.packing",
         "production", "packing",
     ],
-    "sales": ["home", "quotes", "admin", "admin.customers", "admin.suppliers", "admin.purchase_orders", "production"],
+    "sales": ["home", "quotes", "admin", "admin.customers", "admin.suppliers", "admin.employers", "admin.purchase_orders", "production"],
     "production": ["home", "production"],
     "packer": ["home", "packing"],
 }
