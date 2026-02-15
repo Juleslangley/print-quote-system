@@ -33,6 +33,7 @@ from app.models.quote import Quote, QuoteItem
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_line import PurchaseOrderLine
 from app.models.po_sequence import POSequence
+from app.models.document_template import DocumentTemplate
 
 router = APIRouter()
 
@@ -55,6 +56,7 @@ BACKUP_TABLES = [
     ("template_allowed_materials", TemplateAllowedMaterial),
     ("template_pricing_rules", TemplatePricingRule),
     ("customer_pricing_rules", CustomerPricingRule),
+    ("document_templates", DocumentTemplate),
     ("quotes", Quote),
     ("quote_items", QuoteItem),
     ("purchase_orders_sequence", POSequence),
