@@ -60,7 +60,7 @@ def test_promote_single_draft_to_final(app_with_auth_bypass):
     if promote_resp.status_code == 409:
         pytest.skip(
             "Promote returned 409 (sequence/unique conflict). "
-            "Ensure Alembic migration 006_po_sequences has been run."
+            "Ensure Alembic migration 010_po_native_seq has been run."
         )
     assert promote_resp.status_code == 200, promote_resp.json()
     out = promote_resp.json()
@@ -102,7 +102,7 @@ def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass
     if any(s == 409 for s in statuses):
         pytest.skip(
             "Some promote requests returned 409. "
-            "Concurrency test requires Postgres and migration 006_po_sequences."
+            "Concurrency test requires Postgres and migration 010_po_native_seq."
         )
     assert all(s == 200 for s in statuses), f"Expected all 200, got: {statuses}"
 
@@ -126,6 +126,49 @@ def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass
     db = SessionLocal()
     try:
         for po_id in po_ids:
+            db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_create_10_new_pos(app_with_auth_bypass):
+    """Create 10 new POs via API (create draft + promote). All get unique PO numbers."""
+    db = SessionLocal()
+    try:
+        supplier = db.query(Supplier).first()
+        if not supplier:
+            pytest.skip("No supplier in DB")
+        supplier_id = supplier.id
+    finally:
+        db.close()
+
+    client = TestClient(app_with_auth_bypass)
+    po_numbers = []
+    created_ids = []
+
+    for _ in range(10):
+        create_resp = client.post("/api/purchase-orders", json={"supplier_id": supplier_id})
+        assert create_resp.status_code == 200, create_resp.json()
+        data = create_resp.json()
+        po_id = data["id"]
+        created_ids.append(po_id)
+        assert str(data["po_number"]).startswith("DRAFT-"), data
+
+        promote_resp = client.post(f"/api/purchase-orders/{po_id}/promote")
+        assert promote_resp.status_code == 200, promote_resp.json()
+        out = promote_resp.json()
+        pn = out["po_number"]
+        assert pn.startswith("PO") and len(pn) == 9 and pn[2:].isdigit(), pn
+        po_numbers.append(pn)
+
+    assert len(po_numbers) == 10
+    assert len(set(po_numbers)) == 10, "All PO numbers must be unique"
+
+    # Cleanup
+    db = SessionLocal()
+    try:
+        for po_id in created_ids:
             db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).delete(synchronize_session=False)
         db.commit()
     finally:

@@ -50,12 +50,18 @@ function getToken(): string | null {
 
 /** Store token after login. Use this so the key is consistent. */
 export function setToken(token: string): void {
-  if (typeof window !== "undefined") localStorage.setItem(TOKEN_KEY, token);
+  if (typeof window !== "undefined") {
+    localStorage.setItem(TOKEN_KEY, token);
+    window.dispatchEvent(new Event("auth-change"));
+  }
 }
 
 /** Clear token (logout or after 401). */
 export function clearToken(): void {
-  if (typeof window !== "undefined") localStorage.removeItem(TOKEN_KEY);
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(TOKEN_KEY);
+    window.dispatchEvent(new Event("auth-change"));
+  }
 }
 
 function errorMessageFromDetails(body: string, status: number, details: unknown): string {

@@ -39,6 +39,8 @@ export default function MaterialsPage() {
   const [activeOnly, setActiveOnly] = useState(false);
   const [supplierFilterId, setSupplierFilterId] = useState<string>("all");
   const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
+  const [orderingMaterialId, setOrderingMaterialId] = useState<string | null>(null);
+  const [navigateToPoUrl, setNavigateToPoUrl] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Material | null>(null);
@@ -120,6 +122,13 @@ export default function MaterialsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (navigateToPoUrl) {
+      window.location.href = navigateToPoUrl;
+      setNavigateToPoUrl(null);
+    }
+  }, [navigateToPoUrl]);
 
   useEffect(() => {
     const hash = window.location.hash?.replace("#", "");
@@ -417,20 +426,38 @@ export default function MaterialsPage() {
     if (deleted) closeModal();
   }
 
+  function getOrderSupplierId(m: Material): string | null {
+    if (m.supplier_id) return m.supplier_id;
+    if (m.supplier && typeof m.supplier === "string") {
+      const byName = suppliers.find((s) => s.name === m.supplier || (s.name && s.name.trim() === (m.supplier || "").trim()));
+      return byName?.id ?? null;
+    }
+    return null;
+  }
+
   async function orderMaterial(m: Material) {
-    if (!m.supplier_id) {
-      setErr("Set a supplier on this material first.");
+    const supplierId = getOrderSupplierId(m);
+    if (!supplierId) {
+      setErr("Set a supplier on this material first (edit material and choose a supplier).");
       return;
     }
     setErr("");
+    setOrderingMaterialId(m.id);
     try {
-      const po = await api<{ id: string }>("/api/purchase-orders", {
-        method: "POST",
-        body: JSON.stringify({ supplier_id: m.supplier_id }),
-      });
-      router.push(`/admin/purchase-orders/${po.id}?from=materials&materialId=${m.id}`);
+      const po = await api.post<{ id: string }>("/api/purchase-orders", { supplier_id: supplierId });
+      setOrderingMaterialId(null);
+      if (!po?.id) {
+        setErr("Failed to create purchase order: no id returned.");
+        return;
+      }
+      const base = typeof window !== "undefined" && process.env.NEXT_PUBLIC_BASE_PATH ? process.env.NEXT_PUBLIC_BASE_PATH.replace(/\/$/, "") : "";
+      setNavigateToPoUrl(`${base}/admin/purchase-orders/${po.id}?from=materials&materialId=${m.id}`);
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      setOrderingMaterialId(null);
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg === "Forbidden" || (e instanceof ApiError && e.status === 403)
+        ? "You need admin rights to create purchase orders. Log in as an admin."
+        : msg);
     }
   }
 
@@ -565,19 +592,23 @@ export default function MaterialsPage() {
                         : `${m.roll_width_mm}mm · £${m.cost_per_lm_gbp}/lm · Min ${m.min_billable_lm}lm`}
                     </div>
                   </td>
-                  <td style={{ padding: "12px 10px", borderTopRightRadius: 12, borderBottomRightRadius: 12 }}>
-                    <div
-                      style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                    >
+                  <td
+                    style={{ padding: "12px 10px", borderTopRightRadius: 12, borderBottomRightRadius: 12 }}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); orderMaterial(m); }}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                        title={m.supplier_id ? "Order material (new PO)" : "Set a supplier on this material first"}
-                        disabled={!m.supplier_id}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          orderMaterial(m);
+                        }}
+                        title={getOrderSupplierId(m) ? "Order material (new PO)" : "Set a supplier on this material first"}
+                        disabled={!getOrderSupplierId(m) || orderingMaterialId === m.id}
                       >
-                        Order
+                        {orderingMaterialId === m.id ? "Creating…" : "Order"}
                       </button>
                       <button type="button" onClick={() => openEdit(m)} onDoubleClick={(e) => e.stopPropagation()}>
                         Edit
@@ -768,7 +799,9 @@ export default function MaterialsPage() {
               <span style={{ fontSize: 16, fontWeight: 700 }}>Finishing</span>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   const firstKey = cutterToolsOptions[0]?.key ?? "";
                   if (firstKey) setCutterTools((prev) => [...prev, { key: firstKey, default: prev.length === 0 }]);
                 }}

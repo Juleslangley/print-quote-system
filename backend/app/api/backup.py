@@ -32,11 +32,10 @@ from app.models.pricing_rules import TemplatePricingRule, CustomerPricingRule
 from app.models.quote import Quote, QuoteItem
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_line import PurchaseOrderLine
-from app.models.po_sequences import PoSequenceRow
-
 router = APIRouter()
 
 # Order: parents before children (for insert). Truncate uses reverse order with CASCADE.
+# PO numbers use native sequence purchase_orders_seq; not backed up.
 BACKUP_TABLES = [
     ("users", User),
     ("suppliers", Supplier),
@@ -57,7 +56,6 @@ BACKUP_TABLES = [
     ("customer_pricing_rules", CustomerPricingRule),
     ("quotes", Quote),
     ("quote_items", QuoteItem),
-    ("po_sequences", PoSequenceRow),
     ("purchase_orders", PurchaseOrder),
     ("purchase_order_lines", PurchaseOrderLine),
 ]
@@ -148,5 +146,23 @@ def restore_backup(file: UploadFile, db: Session = Depends(get_db), _=Depends(re
             except Exception as e:
                 db.rollback()
                 raise HTTPException(status_code=500, detail=f"Insert {table_name}: {e}")
+
+    # Sync PO sequence so next PO number is max(existing) + 1
+    db.execute(
+        text("""
+            SELECT setval(
+                'purchase_orders_seq',
+                COALESCE(
+                    (
+                        SELECT MAX((regexp_replace(po_number, '\\D', '', 'g'))::integer)
+                        FROM purchase_orders
+                        WHERE po_number IS NOT NULL
+                          AND regexp_replace(po_number, '\\D', '', 'g') ~ '^[0-9]+$'
+                    ),
+                    0
+                )
+            )
+        """)
+    )
     db.commit()
     return {"ok": True, "message": "Restore complete"}

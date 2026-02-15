@@ -29,8 +29,12 @@ export default function Nav() {
   const [me, setMe] = useState<Me | null>(null);
   const [authUnavailable, setAuthUnavailable] = useState(false);
 
+  const readToken = () => setToken(typeof window !== "undefined" ? localStorage.getItem("token") : null);
+
   useEffect(() => {
-    setToken(typeof window !== "undefined" ? localStorage.getItem("token") : null);
+    readToken();
+    window.addEventListener("auth-change", readToken);
+    return () => window.removeEventListener("auth-change", readToken);
   }, []);
 
   useEffect(() => {

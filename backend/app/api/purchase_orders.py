@@ -22,7 +22,6 @@ from app.schemas.purchase_order import (
     CreatedByUser,
 )
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
-# Canonical PO number generator: po_sequences table only (do not use purchase_orders_sequence)
 from app.services.po_number import get_next_po_number
 from app.services.pdfs.purchase_order_pdf import build_po_pdf
 from pydantic import BaseModel as PydanticBase
@@ -80,8 +79,7 @@ def clear_all_purchase_orders(
     """Remove all purchase orders and their lines from the database and reset PO sequence to start fresh."""
     db.query(PurchaseOrderLine).delete(synchronize_session=False)
     db.query(PurchaseOrder).delete(synchronize_session=False)
-    db.execute(text("DELETE FROM po_sequences"))
-    db.execute(text("INSERT INTO po_sequences (key, last_number) VALUES ('purchase_order', 0)"))
+    db.execute(text("SELECT setval('purchase_orders_seq', 1)"))
     db.commit()
     return Response(status_code=204)
 
@@ -170,14 +168,8 @@ def promote_purchase_order(
             status_code=400,
             detail="Only draft purchase orders (DRAFT-...) can be promoted",
         )
-    # Same transaction: get next number from po_sequences only and update PO so commit is atomic
+    # Same transaction: get next number from native sequence and update PO so commit is atomic
     new_po_number = get_next_po_number(db)
-    # TODO-REMOVE: TEMP confirm we use po_sequences (last_number is the numeric part of new_po_number)
-    logger.info(
-        "Using po_sequences: generated po_number=%s (last_number=%s)",
-        new_po_number,
-        new_po_number[2:] if len(new_po_number) >= 9 else "?",
-    )
     po.po_number = new_po_number
     db.add(po)
     try:

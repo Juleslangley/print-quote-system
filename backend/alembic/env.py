@@ -5,7 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from alembic import context
 
-# Import app config and Base so target_metadata includes every table (including PurchaseOrder, PurchaseOrderLine, POSequence).
+# Import app config and Base so target_metadata includes every table (including PurchaseOrder, PurchaseOrderLine).
 from app.core.config import settings
 from app.core.db import Base
 import app.models  # noqa: F401 - register all models with Base.metadata

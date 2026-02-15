@@ -1,4 +1,4 @@
-"""One-off: delete all purchase_order_lines, purchase_orders, and reset po_sequences. Run from backend dir."""
+"""One-off: delete all purchase_order_lines, purchase_orders, and reset PO sequence. Run from backend dir."""
 import sys
 sys.path.insert(0, ".")
 
@@ -12,10 +12,9 @@ def main():
     try:
         db.query(PurchaseOrderLine).delete(synchronize_session=False)
         db.query(PurchaseOrder).delete(synchronize_session=False)
-        db.execute(text("DELETE FROM po_sequences"))
-        db.execute(text("INSERT INTO po_sequences (key, last_number) VALUES ('purchase_order', 0)"))
+        db.execute(text("SELECT setval('purchase_orders_seq', 1)"))
         db.commit()
-        print("Done: all purchase orders and lines removed, PO sequence reset to 0.")
+        print("Done: all purchase orders and lines removed, PO sequence reset to 1.")
     finally:
         db.close()
 
