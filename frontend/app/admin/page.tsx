@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
+import { OVERHEAD_SUMMARY, formatCurrency } from "@/lib/adminOverheads";
 
 const ADMIN_LINKS: { key: string; href: string; label: string }[] = [
   { key: "admin.customers", href: "/admin/customers", label: "Customers" },
@@ -142,11 +144,46 @@ export default function AdminHome() {
         )}
       </section>
 
+      <section className="card" style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: "1rem", marginBottom: 8 }}>Admin overheads</h2>
+        <p className="subtle" style={{ marginBottom: 12 }}>
+          Your monthly overhead dataset is now available in-app.
+        </p>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+          <div>
+            <div className="subtle">Annual total</div>
+            <div style={{ fontWeight: 700 }}>{formatCurrency(OVERHEAD_SUMMARY.annualTotal)}</div>
+          </div>
+          <div>
+            <div className="subtle">Comparison total</div>
+            <div style={{ fontWeight: 700 }}>{formatCurrency(OVERHEAD_SUMMARY.comparisonTotal)}</div>
+          </div>
+          <div>
+            <div className="subtle">Average per month</div>
+            <div style={{ fontWeight: 700 }}>{formatCurrency(OVERHEAD_SUMMARY.monthlyAverage)}</div>
+          </div>
+        </div>
+        <Link
+          href="/admin/overheads"
+          style={{
+            display: "inline-block",
+            padding: "8px 14px",
+            borderRadius: 999,
+            background: "#0066cc",
+            color: "#fff",
+            textDecoration: "none",
+            fontWeight: 500,
+          }}
+        >
+          Open Overheads section
+        </Link>
+      </section>
+
       <h2 style={{ fontSize: "1rem", marginBottom: 8 }}>Admin links</h2>
       <ul style={{ listStyle: "none", paddingLeft: 0 }}>
         {links.map(({ href, label }) => (
           <li key={href} style={{ marginBottom: 8 }}>
-            <a
+            <Link
               href={href}
               style={{
                 display: "block",
@@ -157,7 +194,7 @@ export default function AdminHome() {
               }}
             >
               {label}
-            </a>
+            </Link>
           </li>
         ))}
       </ul>
