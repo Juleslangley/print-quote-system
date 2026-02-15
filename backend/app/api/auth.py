@@ -13,7 +13,7 @@ MENU_DEFAULTS_BY_ROLE = {
     "admin": [
         "home", "quotes", "admin",
         "admin.materials", "admin.suppliers", "admin.machines", "admin.customers", "admin.users",
-        "admin.rates", "admin.operations", "admin.templates", "admin.margins", "admin.purchase_orders",
+        "admin.rates", "admin.operations", "admin.templates", "admin.margins", "admin.overheads", "admin.purchase_orders",
         "admin.packing",
         "production", "packing",
     ],

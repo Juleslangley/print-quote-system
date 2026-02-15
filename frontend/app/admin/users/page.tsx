@@ -39,6 +39,7 @@ export default function AdminUsersPage() {
     { key: "admin.operations", label: "Operations" },
     { key: "admin.templates", label: "Templates" },
     { key: "admin.margins", label: "Margin profiles" },
+    { key: "admin.overheads", label: "Overheads" },
     { key: "production", label: "Production" },
   ];
 
