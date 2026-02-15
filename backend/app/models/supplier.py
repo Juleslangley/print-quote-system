@@ -14,7 +14,14 @@ class Supplier(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String, default="")
     phone: Mapped[str] = mapped_column(String, default="")
     website: Mapped[str] = mapped_column(String, default="")
+    contact_person: Mapped[str] = mapped_column(String, default="")
+    accounts_email: Mapped[str] = mapped_column(String, default="")
     account_ref: Mapped[str] = mapped_column(String, default="")
+
+    address: Mapped[str] = mapped_column(String, default="")
+    city: Mapped[str] = mapped_column(String, default="")
+    postcode: Mapped[str] = mapped_column(String, default="")
+    country: Mapped[str] = mapped_column(String, default="")
 
     lead_time_days_default: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str] = mapped_column(String, default="")

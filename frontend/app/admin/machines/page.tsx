@@ -47,6 +47,12 @@ type MachineRate = {
   notes: string;
 };
 
+type CutterTool = {
+  key: string;
+  name: string;
+  speed_m_per_min: number;
+};
+
 const UNITS = ["sqm", "lm", "hour", "sheet", "job"];
 
 export default function AdminMachinesPage() {
@@ -82,6 +88,8 @@ export default function AdminMachinesPage() {
   const [rateActive, setRateActive] = useState(true);
   const [rateNotes, setRateNotes] = useState("");
 
+  const [tools, setTools] = useState<CutterTool[]>([]);
+
   function resetForm() {
     setName("");
     setCategory("printer_sheet");
@@ -92,6 +100,7 @@ export default function AdminMachinesPage() {
     setSheetMaxWidthMm("");
     setSheetMaxHeightMm("");
     setRollMaxWidthMm("");
+    setTools([]);
   }
 
   function metaToForm(m: Record<string, unknown> | null) {
@@ -100,12 +109,19 @@ export default function AdminMachinesPage() {
       setSheetMaxHeightMm("");
       setRollMaxWidthMm("");
       setMetaJson("{}");
+      setTools([]);
       return;
     }
     setSheetMaxWidthMm(String((m as any).sheet_max_width_mm ?? ""));
     setSheetMaxHeightMm(String((m as any).sheet_max_height_mm ?? ""));
     setRollMaxWidthMm(String((m as any).roll_max_width_mm ?? ""));
     setMetaJson(JSON.stringify(m, null, 2));
+    const rawTools = (m as any).tools;
+    if (Array.isArray(rawTools) && rawTools.every((t: any) => t && typeof t === "object" && "key" in t && "speed_m_per_min" in t)) {
+      setTools(rawTools.map((t: any) => ({ key: String(t.key ?? ""), name: String(t.name ?? t.key ?? ""), speed_m_per_min: Number(t.speed_m_per_min) || 0 })));
+    } else {
+      setTools([]);
+    }
   }
 
   function formToMeta(): Record<string, unknown> {
@@ -120,6 +136,9 @@ export default function AdminMachinesPage() {
     if (sheetMaxWidthMm.trim() !== "") m.sheet_max_width_mm = Number(sheetMaxWidthMm) || 0;
     if (sheetMaxHeightMm.trim() !== "") m.sheet_max_height_mm = Number(sheetMaxHeightMm) || 0;
     if (rollMaxWidthMm.trim() !== "") m.roll_max_width_mm = Number(rollMaxWidthMm) || 0;
+    if (category === "cutter" && tools.length > 0) {
+      m.tools = tools.map((t) => ({ key: t.key.trim() || t.key, name: t.name.trim() || t.key, speed_m_per_min: t.speed_m_per_min }));
+    }
     return m;
   }
 
@@ -498,6 +517,65 @@ export default function AdminMachinesPage() {
               />
             )}
           </div>
+
+          {category === "cutter" && !metaAdvanced && (
+            <div style={{ borderTop: "1px solid #eee", paddingTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span className="subtle" style={{ fontWeight: 600 }}>Tools (speed per m)</span>
+                <button type="button" onClick={() => setTools((prev) => [...prev, { key: "", name: "", speed_m_per_min: 0 }])}>Add tool</button>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr className="subtle" style={{ textAlign: "left" }}>
+                      <th style={{ padding: "4px 6px" }}>Key</th>
+                      <th style={{ padding: "4px 6px" }}>Name</th>
+                      <th style={{ padding: "4px 6px" }}>Speed (m/min)</th>
+                      <th style={{ padding: "4px 6px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tools.map((t, idx) => (
+                      <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            value={t.key}
+                            onChange={(e) => setTools((prev) => prev.map((x, i) => (i === idx ? { ...x, key: e.target.value } : x)))}
+                            placeholder="e.g. cut"
+                            style={{ width: "100%", maxWidth: 120 }}
+                          />
+                        </td>
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            value={t.name}
+                            onChange={(e) => setTools((prev) => prev.map((x, i) => (i === idx ? { ...x, name: e.target.value } : x)))}
+                            placeholder="e.g. Cut"
+                            style={{ width: "100%", maxWidth: 140 }}
+                          />
+                        </td>
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min={0}
+                            value={t.speed_m_per_min}
+                            onChange={(e) => setTools((prev) => prev.map((x, i) => (i === idx ? { ...x, speed_m_per_min: parseFloat(e.target.value) || 0 } : x)))}
+                            style={{ width: 80 }}
+                          />
+                        </td>
+                        <td style={{ padding: "4px 6px" }}>
+                          <button type="button" onClick={() => setTools((prev) => prev.filter((_, i) => i !== idx))}>Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {tools.length === 0 && (
+                  <div className="subtle" style={{ marginTop: 6 }}>No tools. Add tools to define cut/route/crease speeds for this cutter.</div>
+                )}
+              </div>
+            </div>
+          )}
 
           {editing && (
             <div style={{ borderTop: "1px solid #eee", paddingTop: 12 }}>

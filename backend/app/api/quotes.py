@@ -1,3 +1,4 @@
+import copy
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.db import get_db
@@ -7,6 +8,7 @@ from app.models.quote import Quote, QuoteItem
 from app.models.customer import Customer
 from app.models.template import ProductTemplate
 from app.models.material import Material
+from app.models.machine import Machine
 from app.models.rate import Rate
 from app.models.operation import Operation
 from app.models.template_links import TemplateOperation
@@ -102,9 +104,18 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
     # load rates once
     rates = db.query(Rate).all()
     rates_by_type = {
-        r.rate_type: {"setup_minutes": r.setup_minutes, "hourly_cost_gbp": r.hourly_cost_gbp, "run_speed": r.run_speed}
+        r.rate_type: {"setup_minutes": r.setup_minutes, "hourly_cost_gbp": r.hourly_cost_gbp, "run_speed": r.run_speed or {}}
         for r in rates
     }
+
+    # Cutter machine for tool speeds (used per material)
+    cutter_machine = (
+        db.query(Machine)
+        .filter(Machine.category == "cutter", Machine.active == True)
+        .order_by(Machine.sort_order.asc(), Machine.name.asc())
+        .first()
+    )
+    cutter_tools = (cutter_machine.meta or {}).get("tools", []) if cutter_machine else []
 
     for item in items:
         t = db.query(ProductTemplate).filter(ProductTemplate.id == item.template_id).first()
@@ -114,6 +125,22 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
         m = db.query(Material).filter(Material.id == t.default_material_id).first()
         if not m:
             continue
+
+        # Per-item rates: override cutter run_speed from material's selected tool
+        item_rates = copy.deepcopy(rates_by_type)
+        tool_key = (m.meta or {}).get("cutter_tool_key")
+        if tool_key and cutter_tools:
+            selected = next((tool for tool in cutter_tools if isinstance(tool, dict) and tool.get("key") == tool_key), None)
+            if selected and isinstance(selected, dict):
+                speed = selected.get("speed_m_per_min")
+                if speed is not None:
+                    run_speed_override = {
+                        "m_per_min": {"straight": speed, "contour": speed},
+                        "router_m_per_min": speed,
+                    }
+                    for rtype in ("cut_knife", "cut_router"):
+                        if rtype in item_rates:
+                            item_rates[rtype]["run_speed"] = run_speed_override
 
         # Build finish_blocks from DB (TemplateOperation + Operation) or fall back to template rules
         links = (
@@ -159,7 +186,7 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
                 "roll_width_mm": m.roll_width_mm,
                 "min_billable_lm": m.min_billable_lm,
             },
-            rates_by_type=rates_by_type,
+            rates_by_type=item_rates,
             item_input={
                 "template_id": item.template_id,
                 "title": item.title,
@@ -218,9 +245,32 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
 
     rates = db.query(Rate).all()
     rates_by_type = {
-        r.rate_type: {"setup_minutes": r.setup_minutes, "hourly_cost_gbp": r.hourly_cost_gbp, "run_speed": r.run_speed}
+        r.rate_type: {"setup_minutes": r.setup_minutes, "hourly_cost_gbp": r.hourly_cost_gbp, "run_speed": r.run_speed or {}}
         for r in rates
     }
+
+    # Override cutter run_speed from material's selected tool
+    cutter_machine = (
+        db.query(Machine)
+        .filter(Machine.category == "cutter", Machine.active == True)
+        .order_by(Machine.sort_order.asc(), Machine.name.asc())
+        .first()
+    )
+    cutter_tools = (cutter_machine.meta or {}).get("tools", []) if cutter_machine else []
+    item_rates = copy.deepcopy(rates_by_type)
+    tool_key = (m.meta or {}).get("cutter_tool_key")
+    if tool_key and cutter_tools:
+        selected = next((tool for tool in cutter_tools if isinstance(tool, dict) and tool.get("key") == tool_key), None)
+        if selected and isinstance(selected, dict):
+            speed = selected.get("speed_m_per_min")
+            if speed is not None:
+                run_speed_override = {
+                    "m_per_min": {"straight": speed, "contour": speed},
+                    "router_m_per_min": speed,
+                }
+                for rtype in ("cut_knife", "cut_router"):
+                    if rtype in item_rates:
+                        item_rates[rtype]["run_speed"] = run_speed_override
 
     # Build finish_blocks from DB (TemplateOperation + Operation) or fall back to template rules
     template_ops = (
@@ -260,7 +310,7 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
             "roll_width_mm": m.roll_width_mm,
             "min_billable_lm": m.min_billable_lm,
         },
-        rates_by_type=rates_by_type,
+        rates_by_type=item_rates,
         item_input=payload.model_dump(),
     )
 

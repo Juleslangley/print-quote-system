@@ -1,4 +1,5 @@
 """Core Jobs API: create and list jobs."""
+from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,7 @@ def create_job_endpoint(
 
 @router.get("/jobs", response_model=list[JobOut])
 def list_jobs(
-    status: str | None = Query(None),
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):

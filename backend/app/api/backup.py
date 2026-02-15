@@ -32,7 +32,7 @@ from app.models.pricing_rules import TemplatePricingRule, CustomerPricingRule
 from app.models.quote import Quote, QuoteItem
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_line import PurchaseOrderLine
-from app.models.po_sequence import POSequence
+from app.models.po_sequences import PoSequenceRow
 
 router = APIRouter()
 
@@ -57,7 +57,7 @@ BACKUP_TABLES = [
     ("customer_pricing_rules", CustomerPricingRule),
     ("quotes", Quote),
     ("quote_items", QuoteItem),
-    ("purchase_orders_sequence", POSequence),
+    ("po_sequences", PoSequenceRow),
     ("purchase_orders", PurchaseOrder),
     ("purchase_order_lines", PurchaseOrderLine),
 ]

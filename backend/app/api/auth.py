@@ -11,13 +11,13 @@ router = APIRouter()
 # Menu keys used for Nav and Admin landing. visible_menu = (role_defaults ∪ menu_allow) − menu_deny
 MENU_DEFAULTS_BY_ROLE = {
     "admin": [
-        "home", "quotes", "admin",
+        "home", "quotes", "admin", "materials", "customers",
         "admin.materials", "admin.suppliers", "admin.machines", "admin.customers", "admin.users",
         "admin.rates", "admin.operations", "admin.templates", "admin.margins", "admin.purchase_orders",
         "admin.packing",
         "production", "packing",
     ],
-    "sales": ["home", "quotes", "admin", "admin.customers", "admin.suppliers", "admin.purchase_orders", "production"],
+    "sales": ["home", "quotes", "admin", "materials", "customers", "admin.customers", "admin.suppliers", "admin.purchase_orders", "production"],
     "production": ["home", "production"],
     "packer": ["home", "packing"],
 }

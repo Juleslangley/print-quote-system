@@ -26,7 +26,8 @@ def build_po_pdf(db: Session, po: PurchaseOrder) -> bytes:
             supp_contact.append(supplier.phone)
     supp_contact_str = " | ".join(supp_contact) if supp_contact else ""
 
-    story.append(Paragraph(f"<b>Purchase Order {po.po_number}</b>", styles["Title"]))
+    po_label = po.po_number if po.po_number and not (isinstance(po.po_number, str) and po.po_number.startswith("DRAFT-")) else "Draft"
+    story.append(Paragraph(f"<b>Purchase Order {po_label}</b>", styles["Title"]))
     story.append(Spacer(1, 6*mm))
 
     story.append(Paragraph("<b>Supplier</b>", styles["Heading2"]))

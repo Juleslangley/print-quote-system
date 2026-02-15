@@ -1,3 +1,5 @@
+# Backend code is COPY'd (not mounted). Rebuild image to pick up code changes:
+#   docker compose build backend   OR   docker compose up --build backend
 FROM python:3.12-slim
 
 WORKDIR /app

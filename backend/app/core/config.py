@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     PRICING_VERSION: str = "v1.0.0"
     JOB_NO_PREFIX: str = "J"  # e.g. J0001, J0002
     UPLOADS_DIR: str = "uploads"  # relative to backend root or absolute path
+    # Set SQLALCHEMY_ECHO=1 in dev to log all SQL (e.g. to find which endpoint triggers UPDATE purchase_orders)
+    SQLALCHEMY_ECHO: bool = False
 
     class Config:
         env_file = [str(p) for p in _env_files]

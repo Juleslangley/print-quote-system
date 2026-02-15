@@ -163,7 +163,11 @@ def seed_machines(db):
         meta={
             "bed_width_mm": 3200,
             "bed_height_mm": 2200,
-            "tools": ["knife", "kiss_cut", "v_cut"]
+            "tools": [
+                {"key": "cut", "name": "Cut", "speed_m_per_min": 10},
+                {"key": "route", "name": "Route", "speed_m_per_min": 2},
+                {"key": "crease", "name": "Crease", "speed_m_per_min": 15},
+            ]
         }
     )
 

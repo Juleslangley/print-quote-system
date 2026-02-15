@@ -1,0 +1,51 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - link "Home" [ref=e3] [cursor=pointer]:
+      - /url: /
+    - link "Quotes" [ref=e4] [cursor=pointer]:
+      - /url: /quotes
+    - link "Production" [ref=e5] [cursor=pointer]:
+      - /url: /production
+    - link "Packing" [ref=e6] [cursor=pointer]:
+      - /url: /packing
+    - generic [ref=e8]: Not logged in
+  - button "Dev" [ref=e10] [cursor=pointer]
+  - main [ref=e11]:
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - link "Dashboard" [ref=e14] [cursor=pointer]:
+          - /url: /
+        - link "Customers" [ref=e15] [cursor=pointer]:
+          - /url: /customers
+        - link "Suppliers" [ref=e16] [cursor=pointer]:
+          - /url: /suppliers
+        - link "Materials" [ref=e17] [cursor=pointer]:
+          - /url: /materials
+        - link "Purchase orders" [ref=e18] [cursor=pointer]:
+          - /url: /purchase-orders
+      - generic [ref=e19]:
+        - heading "Print Quote System" [level=1] [ref=e20]
+        - button "Seed Dev Data" [ref=e21] [cursor=pointer]
+        - paragraph [ref=e22]: Run this first if the database is empty (creates admin, sales, production users).
+        - heading "Login" [level=2] [ref=e23]
+        - paragraph [ref=e24]:
+          - strong [ref=e25]: "Admin:"
+          - text: admin@local / admin123 |
+          - strong [ref=e26]: "Sales:"
+          - text: sales@local / sales123 |
+          - strong [ref=e27]: "Production:"
+          - text: production@local / prod123
+        - generic [ref=e28]:
+          - textbox "email" [ref=e29]: admin@local
+          - textbox "password" [ref=e30]: admin123
+          - button "Login" [ref=e31] [cursor=pointer]
+        - paragraph
+        - paragraph [ref=e32]:
+          - text: Go to
+          - link "Quotes" [ref=e33] [cursor=pointer]:
+            - /url: /quotes
+  - alert [ref=e34]
+```

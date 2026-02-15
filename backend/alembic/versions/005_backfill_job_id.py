@@ -49,7 +49,7 @@ def upgrade() -> None:
         job_id = str(uuid.uuid4())
         conn.execute(
             text("INSERT INTO jobs (id, job_no, customer_id, title, status) VALUES (:id, :job_no, NULL, :title, 'open')"),
-            {"id": job_id, "job_no": job_no, "title": f"PO {po_number}"},
+            {"id": job_id, "job_no": job_no, "title": f"PO {po_number or 'Draft'}"},
         )
         conn.execute(text("UPDATE purchase_orders SET job_id = :jid WHERE id = :poid"), {"jid": job_id, "poid": poid})
 

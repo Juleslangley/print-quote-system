@@ -3,9 +3,7 @@
 import { useRef, useState } from "react";
 
 const ADMIN_LINKS: { key: string; href: string; label: string }[] = [
-  { key: "admin.customers", href: "/admin/customers", label: "Customers" },
   { key: "admin.users", href: "/admin/users", label: "Users" },
-  { key: "admin.materials", href: "/admin/materials", label: "Materials (view + edit)" },
   { key: "admin.suppliers", href: "/admin/suppliers", label: "Suppliers" },
   { key: "admin.machines", href: "/admin/machines", label: "Machines" },
   { key: "admin.rates", href: "/admin/rates", label: "Rates (view + edit)" },

@@ -7,15 +7,21 @@ export default function BackendHealthBanner() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/health", { credentials: "same-origin" })
-      .then((res) => {
-        if (!cancelled && !res.ok) setBackendDown(true);
-      })
-      .catch(() => {
-        if (!cancelled) setBackendDown(true);
-      });
+    const check = () => {
+      fetch("/api/health", { credentials: "same-origin" })
+        .then((res) => {
+          if (!cancelled && res.ok) setBackendDown(false);
+          else if (!cancelled) setBackendDown(true);
+        })
+        .catch(() => {
+          if (!cancelled) setBackendDown(true);
+        });
+    };
+    check();
+    const interval = setInterval(check, 8000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -31,7 +37,7 @@ export default function BackendHealthBanner() {
         fontSize: 14,
       }}
     >
-      Backend container not healthy
+      Backend offline. Start the backend (e.g. <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: 4 }}>npm run dev:backend</code> from the frontend directory) and ensure it runs on port 8000.
     </div>
   );
 }

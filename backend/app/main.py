@@ -19,6 +19,14 @@ async def startup_log():
     print("✅ Backend running at http://127.0.0.1:8000")
 
 
+@app.exception_handler(ValueError)
+def value_error_handler(request: Request, exc: ValueError):
+    """Convert ORM-level ValueError (e.g. po_number immutable) to HTTP 400."""
+    if "po_number cannot be updated once created" in str(exc):
+        return JSONResponse(status_code=400, content={"detail": "po_number cannot be updated once created"})
+    raise exc
+
+
 @app.exception_handler(Exception)
 def unhandled_exception_handler(request: Request, exc: Exception):
     """Return 500 with error detail so the frontend can show it (e.g. DB connection errors)."""

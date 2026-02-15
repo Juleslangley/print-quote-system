@@ -11,6 +11,8 @@ const TOKEN_KEY = "token";
 const DEFAULT_BACKEND_URL = "http://localhost:8000";
 
 function getBaseUrl(): string {
+  // In the browser, use same-origin so /api/* goes through Next.js rewrites to the backend (avoids CORS and "Backend offline" when backend is only reachable via the dev server).
+  if (typeof window !== "undefined") return "";
   if (typeof process === "undefined" || !process.env) return DEFAULT_BACKEND_URL;
   const url = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (url && typeof url === "string") return url.replace(/\/$/, "");
