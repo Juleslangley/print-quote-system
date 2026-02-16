@@ -1,4 +1,4 @@
-# Import all models so Base.metadata.create_all() creates every table (e.g. suppliers, materials).
+# Import all models so Base.metadata.create_all() creates every table.
 from .user import User
 from .customer import Customer
 from .material import Material
@@ -22,8 +22,7 @@ from .events_outbox import EventsOutbox
 from .packing_batch import PackingBatch
 from .packing_store_job import PackingStoreJob
 from .packing_store_line_item import PackingStoreLineItem
-<<<<<<< Updated upstream
+
+# Document system (v1 templates + renders)
 from .document_template import DocumentTemplate
 from .document_render import DocumentRender
-=======
->>>>>>> Stashed changes
