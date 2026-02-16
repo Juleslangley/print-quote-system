@@ -115,21 +115,6 @@ export default function Nav() {
       ))}
 
       <div style={{ marginLeft: "auto", display: "flex", gap: 14, alignItems: "center" }}>
-        {token && (
-          <Link
-            href="/insights"
-            style={{
-              padding: "8px 14px",
-              borderRadius: 999,
-              fontWeight: 500,
-              background: path?.startsWith("/insights") ? "#e5e5e7" : "transparent",
-              textDecoration: "none",
-              color: "#1d1d1f",
-            }}
-          >
-            Insights
-          </Link>
-        )}
         {token && (visibleSet == null || visibleSet.has("admin")) && (
           <Link
             href="/admin"
