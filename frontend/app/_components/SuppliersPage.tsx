@@ -78,8 +78,8 @@ export default function SuppliersPage() {
   }
 
   function isSupplierFormDirty(): boolean {
-    if (!editing) return false;
-    return (
+    if (editing) {
+      return (
       (name || "").trim() !== (editing.name || "").trim() ||
       (email || "").trim() !== (editing.email || "").trim() ||
       (phone || "").trim() !== (editing.phone || "").trim() ||
@@ -95,6 +95,10 @@ export default function SuppliersPage() {
       (notes || "").trim() !== (editing.notes || "").trim() ||
       active !== !!editing.active
     );
+    }
+    // New supplier: dirty if user has entered anything
+    return (name || "").trim() !== "" || (email || "").trim() !== "" || (phone || "").trim() !== "" ||
+      (contactPerson || "").trim() !== "" || (address || "").trim() !== "";
   }
 
   function doCloseModal() {
@@ -103,7 +107,7 @@ export default function SuppliersPage() {
   }
 
   function closeModal() {
-    if (modalOpen && editing && isSupplierFormDirty()) {
+    if (modalOpen && isSupplierFormDirty()) {
       if (!confirm("Do you wish to save your changes?")) {
         doCloseModal();
         return;

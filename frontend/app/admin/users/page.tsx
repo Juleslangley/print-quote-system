@@ -75,14 +75,17 @@ export default function AdminUsersPage() {
   }
 
   function isUserFormDirty(): boolean {
-    if (!editing) return false;
-    const prevMenu = Array.isArray(editing.menu_deny) ? editing.menu_deny : [];
-    return (
-      (fullName || "").trim() !== (editing.full_name ?? "").trim() ||
-      (role || "sales") !== (editing.role ?? "sales") ||
-      active !== !!editing.active ||
-      JSON.stringify([...menuDeny].sort()) !== JSON.stringify([...prevMenu].sort())
-    );
+    if (editing) {
+      const prevMenu = Array.isArray(editing.menu_deny) ? editing.menu_deny : [];
+      return (
+        (fullName || "").trim() !== (editing.full_name ?? "").trim() ||
+        (role || "sales") !== (editing.role ?? "sales") ||
+        active !== !!editing.active ||
+        JSON.stringify([...menuDeny].sort()) !== JSON.stringify([...prevMenu].sort())
+      );
+    }
+    // New user: dirty if user has entered anything
+    return (fullName || "").trim() !== "" || (email || "").trim() !== "" || password.trim() !== "";
   }
 
   function doCloseModal() {
@@ -92,7 +95,7 @@ export default function AdminUsersPage() {
   }
 
   function closeModal() {
-    if (modalOpen && editing && isUserFormDirty()) {
+    if (modalOpen && isUserFormDirty()) {
       if (!confirm("Do you wish to save your changes?")) {
         doCloseModal();
         return;

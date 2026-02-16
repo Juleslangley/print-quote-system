@@ -95,8 +95,9 @@ export default function Modal({
         zIndex,
         boxSizing: "border-box",
       }}
-      onClick={onClose}
-      onMouseDown={onClose}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         style={{
@@ -117,7 +118,17 @@ export default function Modal({
       >
         <div style={{ padding: 18, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
           <div id="modal-title" style={{ fontWeight: 600 }}>{title}</div>
-          <button type="button" onClick={onClose} aria-label="Close">✕</button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
         <div style={{ padding: 18, overflow: "auto", flex: 1, minHeight: 0 }}>{children}</div>
       </div>

@@ -241,7 +241,7 @@ export default function PurchaseOrderDetailPage() {
     } else if (selectedMaterial.type === "roll") {
       const costPerLm = selectedSize?.cost_per_lm_gbp ?? selectedMaterial.cost_per_lm_gbp ?? 0;
       const lengthM = selectedSize?.length_m ?? null;
-      const customAllowed = !!(selectedSize as MaterialSize).custom_length_available;
+      const customAllowed = !!(selectedSize as MaterialSize | null)?.custom_length_available;
       const useRolls = selectedSize && lengthM != null && lengthM > 0 && (!customAllowed || !useCustomLength);
       if (useRolls) {
         setLineUom("roll");

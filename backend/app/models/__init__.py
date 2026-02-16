@@ -22,5 +22,8 @@ from .events_outbox import EventsOutbox
 from .packing_batch import PackingBatch
 from .packing_store_job import PackingStoreJob
 from .packing_store_line_item import PackingStoreLineItem
+<<<<<<< Updated upstream
 from .document_template import DocumentTemplate
 from .document_render import DocumentRender
+=======
+>>>>>>> Stashed changes

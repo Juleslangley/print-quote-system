@@ -130,6 +130,26 @@ export default function PurchaseOrderList({
     }
   }
 
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  async function processPO(po: PO, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!isDraft(po)) return;
+    setErr("");
+    setProcessingId(po.id);
+    try {
+      await api(`/api/purchase-orders/${po.id}/promote`, { method: "POST" });
+      await api(`/api/purchase-orders/${po.id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: "sent" }),
+      });
+      await load();
+    } catch (e: any) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
   return (
     <>
       {title != null && (
@@ -245,6 +265,17 @@ export default function PurchaseOrderList({
                       <button type="button" onClick={() => openDetail(po.id)}>
                         Open
                       </button>
+                      {isDraft(po) && (
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={(e) => processPO(po, e)}
+                          disabled={processingId === po.id}
+                          title="Promote to final PO number and mark sent"
+                        >
+                          {processingId === po.id ? "Processing…" : "Process order"}
+                        </button>
+                      )}
                       {isDraft(po) && (
                         <button
                           type="button"

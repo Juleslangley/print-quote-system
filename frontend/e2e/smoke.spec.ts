@@ -35,6 +35,47 @@ test.describe("Smoke: modal and nav after close", () => {
     await expect(page).toHaveURL(/\/admin$/);
   });
 
+  test("suppliers: X close with unsaved change (new) shows save confirm", async ({ page }) => {
+    await page.goto("/admin/suppliers");
+    await page.getByRole("button", { name: "New Supplier" }).click();
+    const dialog = page.getByRole("dialog", { name: /New Supplier/i });
+    await expect(dialog).toBeVisible();
+    await dialog.locator("input").first().fill("Test Supplier Name");
+    let confirmSeen = false;
+    page.once("dialog", (d) => {
+      expect(d.message()).toContain("Do you wish to save");
+      confirmSeen = true;
+      d.dismiss();
+    });
+    await dialog.getByRole("button", { name: "Close" }).click();
+    expect(confirmSeen).toBe(true);
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test("suppliers: X close with unsaved change (edit) shows save confirm", async ({ page }) => {
+    await page.goto("/admin/suppliers");
+    await page.waitForLoadState("networkidle");
+    const editBtn = page.getByRole("button", { name: "Edit" }).first();
+    if (!(await editBtn.isVisible())) {
+      test.skip(true, "No suppliers to edit");
+    }
+    await editBtn.click();
+    const dialog = page.getByRole("dialog", { name: /Edit Supplier/i });
+    await expect(dialog).toBeVisible();
+    const nameInput = dialog.locator("input").first();
+    await nameInput.fill(""); // clear
+    await nameInput.fill("Modified Name");
+    let confirmSeen = false;
+    page.once("dialog", (d) => {
+      expect(d.message()).toContain("Do you wish to save");
+      confirmSeen = true;
+      d.dismiss();
+    });
+    await dialog.getByRole("button", { name: "Close" }).click();
+    expect(confirmSeen).toBe(true);
+    await expect(dialog).not.toBeVisible();
+  });
+
   test("customers: open modal, cancel, Admin nav works", async ({ page }) => {
     await page.goto("/customers");
     await page.getByRole("button", { name: "New Customer" }).click();

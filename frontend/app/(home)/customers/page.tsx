@@ -106,8 +106,8 @@ export default function CustomersPage() {
   }
 
   function isCustomerFormDirty(): boolean {
-    if (!editing) return false;
-    const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
+    if (editing) {
+      const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
     let prevMetaStr = "{}";
     try {
       prevMetaStr = JSON.stringify(prevMeta, null, 2);
@@ -129,6 +129,10 @@ export default function CustomersPage() {
       active !== !!editing.active ||
       (metaJson || "{}").trim() !== prevMetaStr
     );
+    }
+    // New customer: dirty if user has entered anything
+    return (name || "").trim() !== "" || (email || "").trim() !== "" || (phone || "").trim() !== "" ||
+      (website || "").trim() !== "" || (notes || "").trim() !== "";
   }
 
   function isContactFormDirty(): boolean {
@@ -172,7 +176,7 @@ export default function CustomersPage() {
   }
 
   function closeModal() {
-    if (modalOpen && editing && isCustomerFormDirty()) {
+    if (modalOpen && isCustomerFormDirty()) {
       if (!confirm("Do you wish to save your changes?")) {
         doCloseModal();
         return;
