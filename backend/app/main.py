@@ -60,6 +60,37 @@ app.add_middleware(
 # Starter: auto-create tables. For production, move to Alembic migrations.
 Base.metadata.create_all(bind=engine)
 
+# Purchase Orders: ensure native Postgres sequence exists for PO numbers.
+# Some dev environments may not have run Alembic migrations that create it yet.
+try:
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            seq_exists = conn.execute(text("SELECT to_regclass('public.purchase_orders_seq')")).scalar()
+            if not seq_exists:
+                conn.execute(text("CREATE SEQUENCE purchase_orders_seq START 1"))
+                po_table_exists = conn.execute(text("SELECT to_regclass('public.purchase_orders')")).scalar()
+                if po_table_exists:
+                    # Sync to max existing PO number (ignore drafts like DRAFT-...).
+                    conn.execute(
+                        text(
+                            """
+                            SELECT setval(
+                                'purchase_orders_seq',
+                                COALESCE(
+                                    (
+                                        SELECT MAX(CAST(SUBSTRING(po_number FROM 3) AS INTEGER))
+                                        FROM purchase_orders
+                                        WHERE po_number ~ '^PO[0-9]+$'
+                                    ),
+                                    0
+                                )
+                            )
+                            """
+                        )
+                    )
+except Exception as e:
+    logger.warning("Startup PO sequence ensure skipped (non-fatal): %s", e)
+
 # Optional: add columns to existing tables (dev-safe; skip if tables/columns already exist)
 try:
     with engine.begin() as conn:
