@@ -258,7 +258,11 @@ def update_purchase_order(
     requested_status = data.get("status") if "status" in data else None
     # Apply status transition via single source of truth (includes render hook)
     if requested_status is not None:
-        transition_po_status(db, po, str(requested_status), user.id)
+        allowed = {"draft", "processed", "sent", "part_received", "received", "cancelled"}
+        status = str(requested_status).strip().lower()
+        if status not in allowed:
+            raise HTTPException(status_code=400, detail=f"status must be one of {allowed}")
+        transition_po_status(db, po, status, user.id)
         # Remove status so the generic attribute setter doesn't overwrite status again
         data.pop("status", None)
     for k, v in data.items():
@@ -330,9 +334,10 @@ def set_po_status(
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     allowed = {"draft", "processed", "sent", "part_received", "received", "cancelled"}
-    if payload.status not in allowed:
+    status = (payload.status or "").strip().lower()
+    if status not in allowed:
         raise HTTPException(status_code=400, detail=f"status must be one of {allowed}")
-    transition_po_status(db, po, payload.status, user.id)
+    transition_po_status(db, po, status, user.id)
     db.add(po)
     db.commit()
     db.refresh(po)

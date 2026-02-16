@@ -542,19 +542,21 @@ export default function PurchaseOrderDetailPage() {
         <div>
           <h1 style={{ margin: 0 }}>
             {isDraftPoNumber ? "Draft" : po.po_number}
-            <span
-              style={{
-                marginLeft: 12,
-                padding: "4px 12px",
-                borderRadius: 999,
-                fontSize: 14,
-                fontWeight: 500,
-                background: po.status === "draft" ? "#f0f0f2" : po.status === "received" ? "#d1fae5" : "#fef3c7",
-                color: "#1d1d1f",
-              }}
-            >
-              {po.status}
-            </span>
+            {!(isDraftPoNumber && po.status === "draft") && (
+              <span
+                style={{
+                  marginLeft: 12,
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  background: po.status === "draft" ? "#f0f0f2" : po.status === "received" ? "#d1fae5" : "#fef3c7",
+                  color: "#1d1d1f",
+                }}
+              >
+                {po.status.charAt(0).toUpperCase() + po.status.slice(1).replace(/_/g, " ")}
+              </span>
+            )}
           </h1>
           <div className="subtle" style={{ marginTop: 4 }}>{supplierName}</div>
         </div>
