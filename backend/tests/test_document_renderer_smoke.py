@@ -1,6 +1,10 @@
 import pytest
 
-from app.core.db import SessionLocal
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.db import Base
+import app.models  # noqa: F401 - register models for Base.metadata
 from app.models.base import new_id
 from app.models.user import User
 from app.models.supplier import Supplier
@@ -25,7 +29,10 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path):
     except Exception as e:
         pytest.skip(f"WeasyPrint not available in test env: {e}")
 
-    db = SessionLocal()
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+    db = Session()
     created_paths = []
     try:
         user = User(id=new_id(), email=f"t-{new_id()}@local", password_hash="x", role="admin", active=True)
@@ -52,9 +59,6 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path):
             content="<html><body><h1>PO {{ po.id }}</h1></body></html>",
             is_active=True,
         )
-        # Ensure only one active
-        db.query(DocumentTemplate).filter(DocumentTemplate.doc_type == "purchase_order").update({"is_active": False}, synchronize_session=False)
-
         db.add_all([user, sup, po, line, tpl])
         db.commit()
 
@@ -68,7 +72,7 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path):
         # Resolve path relative to backend root (this matches service logic).
         import pathlib
         backend_root = pathlib.Path(__file__).resolve().parent.parent
-        pdf_path = backend_root / f.storage_key
+        pdf_path = backend_root / "uploads" / f.storage_key
         created_paths.append(pdf_path)
         assert pdf_path.exists()
         assert pdf_path.stat().st_size > 0
