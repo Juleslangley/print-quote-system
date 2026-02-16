@@ -280,19 +280,21 @@ export default function PurchaseOrderDetailPage() {
   }
 
   function isAddLineFormDirty(): boolean {
-    return !!(lineDesc?.trim() || selectedMaterial || lineSupplierCode?.trim());
+    return !!(lineDesc?.trim() || selectedMaterial || lineSupplierCode?.trim() || lineQty !== 1 || lineUnitCost !== 0);
   }
 
-  function closeAddLineModal() {
-    if (addLineOpen && isAddLineFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        setAddLineOpen(false);
-        return;
-      }
-      saveLine();
-      return;
-    }
+  function doCloseAddLineModal() {
     setAddLineOpen(false);
+    setSelectedMaterial(null);
+    setSelectedSize(null);
+  }
+
+  const addLineModalRequestCloseRef = useRef<(() => void) | null>(null);
+  const editLineModalRequestCloseRef = useRef<(() => void) | null>(null);
+  const receiveModalRequestCloseRef = useRef<(() => void) | null>(null);
+
+  function isReceiveFormDirty(): boolean {
+    return Object.values(receiveQtys).some((v) => v != null && v > 0);
   }
 
   async function saveLine() {
@@ -312,11 +314,13 @@ export default function PurchaseOrderDetailPage() {
           sort_order: lines.length,
         }),
       });
-      setAddLineOpen(false);
+      doCloseAddLineModal();
       await loadLines();
       await loadPO();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -347,18 +351,6 @@ export default function PurchaseOrderDetailPage() {
     setEditingLine(null);
   }
 
-  function closeEditLineModal() {
-    if (editLineOpen && editingLine && isEditLineFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseEditLineModal();
-        return;
-      }
-      saveEditLine();
-      return;
-    }
-    doCloseEditLineModal();
-  }
-
   async function saveEditLine() {
     if (!editingLine) return;
     setErr("");
@@ -377,7 +369,9 @@ export default function PurchaseOrderDetailPage() {
       await loadLines();
       await loadPO();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -489,8 +483,15 @@ export default function PurchaseOrderDetailPage() {
       await loadPO();
       await loadLines();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
+  }
+
+  function doCloseReceiveModal() {
+    setReceiveOpen(false);
+    setReceiveQtys({});
   }
 
   const activeLines = lines.filter((l) => l.active);
@@ -673,7 +674,15 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
-      <Modal open={addLineOpen} title="Add line" onClose={closeAddLineModal} wide>
+      <Modal
+        open={addLineOpen}
+        title="Add line"
+        onClose={doCloseAddLineModal}
+        wide
+        isDirty={addLineOpen && isAddLineFormDirty()}
+        onSave={saveLine}
+        requestCloseRef={addLineModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           {materialIdFromUrl && selectedMaterial ? (
             <div style={{ padding: "10px 12px", background: "#f5f5f7", borderRadius: 10, border: "1px solid #e5e5e7" }}>
@@ -793,13 +802,21 @@ export default function PurchaseOrderDetailPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={closeAddLineModal}>Cancel</button>
+            <button type="button" onClick={() => addLineModalRequestCloseRef.current?.()}>Cancel</button>
             <button type="button" className="primary" onClick={saveLine} disabled={!lineDesc.trim()}>Save line</button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={editLineOpen} title="Edit line" onClose={closeEditLineModal} wide>
+      <Modal
+        open={editLineOpen}
+        title="Edit line"
+        onClose={doCloseEditLineModal}
+        wide
+        isDirty={editLineOpen && !!editingLine && isEditLineFormDirty()}
+        onSave={saveEditLine}
+        requestCloseRef={editLineModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <div>
             <label className="subtle">Description</label>
@@ -831,13 +848,21 @@ export default function PurchaseOrderDetailPage() {
           </div>
           {err && editLineOpen && <div style={{ color: "#c00", fontSize: 14 }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={closeEditLineModal}>Cancel</button>
+            <button type="button" onClick={() => editLineModalRequestCloseRef.current?.()}>Cancel</button>
             <button type="button" className="primary" onClick={saveEditLine} disabled={!editLineDesc.trim()}>Save changes</button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={receiveOpen} title="Receive" onClose={() => setReceiveOpen(false)} wide>
+      <Modal
+        open={receiveOpen}
+        title="Receive"
+        onClose={doCloseReceiveModal}
+        wide
+        isDirty={receiveOpen && isReceiveFormDirty()}
+        onSave={submitReceive}
+        requestCloseRef={receiveModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <p className="subtle">Enter quantity received now for each line.</p>
           {activeLines.map((l) => (
@@ -859,7 +884,7 @@ export default function PurchaseOrderDetailPage() {
           {activeLines.length === 0 && <div className="subtle">No active lines.</div>}
           {err && receiveOpen && <div style={{ color: "#c00" }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => setReceiveOpen(false)}>Cancel</button>
+            <button type="button" onClick={() => receiveModalRequestCloseRef.current?.()}>Cancel</button>
             <button type="button" className="primary" onClick={submitReceive}>Submit receive</button>
           </div>
         </div>

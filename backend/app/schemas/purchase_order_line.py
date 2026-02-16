@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 
 class PurchaseOrderLineCreate(BaseModel):
-    po_id: str
+    po_id: int
     material_id: Optional[str] = None
     material_size_id: Optional[str] = None
     description: str = ""
@@ -28,7 +28,7 @@ class PurchaseOrderLineUpdate(BaseModel):
 
 class PurchaseOrderLineOut(BaseModel):
     id: str
-    po_id: str
+    po_id: int
     sort_order: int
     material_id: Optional[str] = None
     material_size_id: Optional[str] = None

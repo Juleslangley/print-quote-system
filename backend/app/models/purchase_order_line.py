@@ -1,6 +1,6 @@
 from typing import Optional
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Float, Integer, Boolean, ForeignKey
+from sqlalchemy import String, Float, Integer, Boolean, BigInteger, ForeignKey
 from app.core.db import Base
 from app.models.base import TimestampMixin
 
@@ -8,7 +8,7 @@ from app.models.base import TimestampMixin
 class PurchaseOrderLine(Base, TimestampMixin):
     __tablename__ = "purchase_order_lines"
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    po_id: Mapped[str] = mapped_column(String, ForeignKey("purchase_orders.id"), index=True)
+    po_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("purchase_orders.id", ondelete="CASCADE"), index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     material_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("materials.id"), nullable=True, index=True)
     material_size_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("material_sizes.id"), nullable=True, index=True)

@@ -26,7 +26,6 @@ from app.schemas.purchase_order import (
     CreatedByUser,
 )
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
-from app.services.po_number import get_next_po_number
 from app.services.pdfs.purchase_order_pdf import build_po_pdf
 from app.services.purchase_order_workflow import transition_po_status
 from pydantic import BaseModel as PydanticBase
@@ -40,7 +39,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 UPLOADS_DIR = _BACKEND_ROOT / settings.UPLOADS_DIR
 
 
-def _recalc_po_totals(db: Session, po_id: str) -> None:
+def _recalc_po_totals(db: Session, po_id: int) -> None:
     lines = (
         db.query(PurchaseOrderLine)
         .filter(PurchaseOrderLine.po_id == po_id, PurchaseOrderLine.active.is_(True))
@@ -84,10 +83,9 @@ def clear_all_purchase_orders(
     db: Session = Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Remove all purchase orders and their lines from the database and reset PO sequence to start fresh."""
+    """Remove all purchase orders and their lines from the database."""
     db.query(PurchaseOrderLine).delete(synchronize_session=False)
     db.query(PurchaseOrder).delete(synchronize_session=False)
-    db.execute(text("SELECT setval('purchase_orders_seq', 1)"))
     db.commit()
     return Response(status_code=204)
 
@@ -101,11 +99,7 @@ def create_purchase_order(
     sup = db.query(Supplier).filter(Supplier.id == payload.supplier_id).first()
     if not sup:
         raise HTTPException(status_code=404, detail="Supplier not found")
-    po_id = new_id()
-    po_number = f"DRAFT-{po_id}"
     po = PurchaseOrder(
-        id=po_id,
-        po_number=po_number,
         supplier_id=payload.supplier_id,
         status="draft",
         delivery_name=payload.delivery_name or "",
@@ -115,6 +109,7 @@ def create_purchase_order(
         created_by_user_id=user.id if user else None,
     )
     db.add(po)
+    db.flush()  # Get id before commit so after_insert can set po_number
     db.commit()
     db.refresh(po)
     return po
@@ -122,7 +117,7 @@ def create_purchase_order(
 
 @router.get("/purchase-orders/{po_id}", response_model=PurchaseOrderDetailOut)
 def get_purchase_order(
-    po_id: str,
+    po_id: int,
     db: Session = Depends(get_db),
     _=Depends(require_sales),
 ):
@@ -142,18 +137,18 @@ def get_purchase_order(
 
 @router.delete("/purchase-orders/{po_id}", status_code=204)
 def delete_purchase_order(
-    po_id: str,
+    po_id: int,
     db: Session = Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Delete a draft purchase order completely (and its lines). Only drafts (DRAFT-...) can be deleted."""
+    """Delete a draft purchase order completely (and its lines). Only drafts can be deleted."""
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    if not po.po_number or not str(po.po_number).startswith("DRAFT-"):
+    if po.status != "draft":
         raise HTTPException(
             status_code=400,
-            detail="Only draft purchase orders (DRAFT-...) can be deleted. Finalized POs cannot be deleted.",
+            detail="Only draft purchase orders can be deleted. Finalized POs cannot be deleted.",
         )
     db.query(PurchaseOrderLine).filter(PurchaseOrderLine.po_id == po_id).delete(synchronize_session=False)
     db.delete(po)
@@ -163,51 +158,29 @@ def delete_purchase_order(
 
 @router.post("/purchase-orders/{po_id}/promote", response_model=PurchaseOrderOut)
 def promote_purchase_order(
-    po_id: str,
+    po_id: int,
     db: Session = Depends(get_db),
-    _=Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
-    """Promote a draft PO to final: assign the next PO number (PO0000001, ...) in a concurrency-safe way."""
+    """Promote a draft PO to processed: transition status. po_number is already set from id on insert."""
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    if not po.po_number or not str(po.po_number).startswith("DRAFT-"):
+    if po.status != "draft":
         raise HTTPException(
             status_code=400,
-            detail="Only draft purchase orders (DRAFT-...) can be promoted",
+            detail="Only draft purchase orders can be promoted",
         )
-    # Same transaction: get next number from native sequence and update PO so commit is atomic
-    new_po_number = get_next_po_number(db)
-    po.po_number = new_po_number
+    transition_po_status(db, po, "processed", user.id if user else "")
     db.add(po)
-    try:
-        db.commit()
-        db.refresh(po)
-        return po
-    except IntegrityError:
-        db.rollback()
-        # Retry once: re-attach PO and get a fresh number in a new transaction
-        po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
-        if not po:
-            raise HTTPException(status_code=404, detail="Purchase order not found")
-        new_po_number = get_next_po_number(db)
-        po.po_number = new_po_number
-        db.add(po)
-        try:
-            db.commit()
-            db.refresh(po)
-            return po
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="Could not generate unique PO number; please retry.",
-            )
+    db.commit()
+    db.refresh(po)
+    return po
 
 
 @router.get("/purchase-orders/{po_id}/lines", response_model=list[PurchaseOrderLineOut])
 def list_po_lines(
-    po_id: str,
+    po_id: int,
     db: Session = Depends(get_db),
     _=Depends(require_sales),
 ):
@@ -224,7 +197,7 @@ def list_po_lines(
 
 @router.delete("/purchase-orders/{po_id}/lines", status_code=204)
 def delete_all_po_lines(
-    po_id: str,
+    po_id: int,
     db: Session = Depends(get_db),
     _=Depends(require_admin),
 ):
@@ -244,7 +217,7 @@ def delete_all_po_lines(
 
 @router.put("/purchase-orders/{po_id}", response_model=PurchaseOrderOut)
 def update_purchase_order(
-    po_id: str,
+    po_id: int,
     payload: PurchaseOrderUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
@@ -277,7 +250,7 @@ def update_purchase_order(
 
 @router.post("/purchase-orders/{po_id}/lines", response_model=PurchaseOrderLineOut)
 def add_po_line(
-    po_id: str,
+    po_id: int,
     payload: PurchaseOrderLineCreate,
     db: Session = Depends(get_db),
     _=Depends(require_admin),
@@ -323,7 +296,7 @@ class ReceiveIn(PydanticBase):
 @router.post("/purchase-orders/{po_id}/status", response_model=PurchaseOrderOut)
 def set_po_status(
     request: Request,
-    po_id: str,
+    po_id: int,
     payload: StatusIn,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
@@ -347,7 +320,7 @@ def set_po_status(
 @router.post("/purchase-orders/{po_id}/receive", response_model=PurchaseOrderOut)
 def receive_po(
     request: Request,
-    po_id: str,
+    po_id: int,
     payload: ReceiveIn,
     db: Session = Depends(get_db),
     _=Depends(require_admin),
@@ -381,7 +354,7 @@ def receive_po(
 
 @router.get("/purchase-orders/{po_id}.pdf")
 def get_po_pdf(
-    po_id: str,
+    po_id: int,
     db: Session = Depends(get_db),
     _=Depends(require_sales),
 ):
@@ -401,7 +374,7 @@ def get_po_pdf(
         if f:
             path = UPLOADS_DIR / f.storage_key
             if path.exists():
-                po_label = po.po_number if po.po_number and not (isinstance(po.po_number, str) and po.po_number.startswith("DRAFT-")) else "PO-draft"
+                po_label = po.po_number or f"PO{po.id:07d}"
                 filename = f"{po_label}.pdf"
                 return Response(
                     content=path.read_bytes(),
@@ -410,6 +383,6 @@ def get_po_pdf(
                 )
 
     pdf_bytes = build_po_pdf(db, po)
-    po_label = po.po_number if po.po_number and not (isinstance(po.po_number, str) and po.po_number.startswith("DRAFT-")) else "PO-draft"
+    po_label = po.po_number or f"PO{po.id:07d}"
     filename = f"{po_label}.pdf"
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})

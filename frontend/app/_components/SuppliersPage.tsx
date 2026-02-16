@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import Modal from "./Modal";
 
@@ -106,17 +106,7 @@ export default function SuppliersPage() {
     setEditing(null);
   }
 
-  function closeModal() {
-    if (modalOpen && isSupplierFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseModal();
-        return;
-      }
-      saveSupplier();
-      return;
-    }
-    doCloseModal();
-  }
+  const modalRequestCloseRef = useRef<(() => void) | null>(null);
 
   async function load() {
     setErr("");
@@ -214,7 +204,9 @@ export default function SuppliersPage() {
       doCloseModal();
       await load();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -428,8 +420,11 @@ export default function SuppliersPage() {
       <Modal
         open={modalOpen}
         title={editing ? `Edit Supplier` : `New Supplier`}
-        onClose={closeModal}
+        onClose={doCloseModal}
         wide
+        isDirty={modalOpen && isSupplierFormDirty()}
+        onSave={saveSupplier}
+        requestCloseRef={modalRequestCloseRef}
       >
         <form
           style={{ display: "grid", gap: 12 }}
@@ -574,7 +569,7 @@ export default function SuppliersPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeModal}>Cancel</button>
+              <button type="button" onClick={() => modalRequestCloseRef.current?.()}>Cancel</button>
               <button
                 type="button"
                 className="primary"

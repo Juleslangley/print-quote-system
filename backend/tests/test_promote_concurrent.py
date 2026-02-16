@@ -9,20 +9,6 @@ from app.core.db import SessionLocal
 from app.api.permissions import require_admin, require_sales
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
-from app.models.base import new_id
-
-
-def _make_draft_po(po_id: str, supplier_id: str) -> PurchaseOrder:
-    return PurchaseOrder(
-        id=po_id,
-        po_number=f"DRAFT-{po_id}",
-        supplier_id=supplier_id,
-        status="draft",
-        delivery_name="",
-        delivery_address="",
-        notes="",
-        internal_notes="",
-    )
 
 
 @pytest.fixture
@@ -55,7 +41,7 @@ def test_promote_single_draft_to_final(app_with_auth_bypass):
     assert create_resp.status_code == 200, create_resp.json()
     data = create_resp.json()
     po_id = data["id"]
-    assert str(data["po_number"]).startswith("DRAFT-"), data
+    assert data["po_number"] and str(data["po_number"]).startswith("PO"), data
     promote_resp = client.post(f"/api/purchase-orders/{po_id}/promote")
     if promote_resp.status_code == 409:
         pytest.skip(
@@ -82,16 +68,27 @@ def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass
         supplier = db.query(Supplier).first()
         if not supplier:
             pytest.skip("No supplier in DB; create one to run this test")
-        po_ids = [new_id() for _ in range(20)]
-        for po_id in po_ids:
-            db.add(_make_draft_po(po_id, supplier.id))
+        pos = []
+        for _ in range(20):
+            po = PurchaseOrder(
+                supplier_id=supplier.id,
+                status="draft",
+                delivery_name="",
+                delivery_address="",
+                notes="",
+                internal_notes="",
+            )
+            db.add(po)
+            pos.append(po)
+        db.flush()
+        po_ids = [po.id for po in pos]
         db.commit()
     finally:
         db.close()
 
     client = TestClient(app_with_auth_bypass)
 
-    def promote_one(po_id: str):
+    def promote_one(po_id: int):
         r = client.post(f"/api/purchase-orders/{po_id}/promote")
         return (po_id, r)
 
@@ -153,7 +150,7 @@ def test_create_10_new_pos(app_with_auth_bypass):
         data = create_resp.json()
         po_id = data["id"]
         created_ids.append(po_id)
-        assert str(data["po_number"]).startswith("DRAFT-"), data
+        assert data["po_number"] and str(data["po_number"]).startswith("PO"), data
 
         promote_resp = client.post(f"/api/purchase-orders/{po_id}/promote")
         assert promote_resp.status_code == 200, promote_resp.json()

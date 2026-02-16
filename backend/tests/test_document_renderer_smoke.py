@@ -37,8 +37,10 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path):
     try:
         user = User(id=new_id(), email=f"t-{new_id()}@local", password_hash="x", role="admin", active=True)
         sup = Supplier(id=new_id(), name=f"Test Supplier {new_id()}", active=True)
-        po_id = new_id()
-        po = PurchaseOrder(id=po_id, po_number=f"DRAFT-{po_id}", supplier_id=sup.id, status="draft")
+        po = PurchaseOrder(supplier_id=sup.id, status="draft")
+        db.add_all([user, sup, po])
+        db.flush()
+        po_id = po.id
         line = PurchaseOrderLine(
             id=new_id(),
             po_id=po_id,
@@ -59,7 +61,7 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path):
             content="<html><body><h1>PO {{ po.id }}</h1></body></html>",
             is_active=True,
         )
-        db.add_all([user, sup, po, line, tpl])
+        db.add_all([line, tpl])
         db.commit()
 
         file_id = render_purchase_order_for_session(db, po_id, user.id)

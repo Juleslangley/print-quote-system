@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
@@ -136,7 +136,7 @@ export default function CustomersPage() {
   }
 
   function isContactFormDirty(): boolean {
-    if (!editingContact) return false;
+    if (editingContact) {
     return (
       (cFirstName || "").trim() !== (editingContact.first_name || "").trim() ||
       (cLastName || "").trim() !== (editingContact.last_name || "").trim() ||
@@ -152,10 +152,14 @@ export default function CustomersPage() {
       cActive !== !!editingContact.active ||
       Number(cSortOrder) !== Number(editingContact.sort_order || 0)
     );
+    }
+    // New contact: dirty if user has entered anything
+    return (cFirstName || "").trim() !== "" || (cLastName || "").trim() !== "" ||
+      (cName || "").trim() !== "" || (cEmail || "").trim() !== "" || (cPhone || "").trim() !== "";
   }
 
   function isMethodFormDirty(): boolean {
-    if (!editingMethod) return false;
+    if (editingMethod) {
     return (
       mKind !== (editingMethod.kind || "other") ||
       (mLabel || "").trim() !== (editingMethod.label || "").trim() ||
@@ -166,6 +170,9 @@ export default function CustomersPage() {
       mActive !== !!editingMethod.active ||
       Number(mSortOrder) !== Number(editingMethod.sort_order || 0)
     );
+    }
+    // New method: dirty if user has entered anything
+    return (mLabel || "").trim() !== "" || (mValue || "").trim() !== "";
   }
 
   function doCloseModal() {
@@ -175,17 +182,7 @@ export default function CustomersPage() {
     setEditing(null);
   }
 
-  function closeModal() {
-    if (modalOpen && isCustomerFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseModal();
-        return;
-      }
-      saveCustomer();
-      return;
-    }
-    doCloseModal();
-  }
+  const customerModalRequestCloseRef = useRef<(() => void) | null>(null);
 
   function doCloseContactModal() {
     setMethodModalOpen(false);
@@ -195,17 +192,7 @@ export default function CustomersPage() {
     if (editing?.id) loadContacts(editing.id);
   }
 
-  function closeContactModal() {
-    if (contactModalOpen && editingContact && isContactFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseContactModal();
-        return;
-      }
-      saveContact();
-      return;
-    }
-    doCloseContactModal();
-  }
+  const contactModalRequestCloseRef = useRef<(() => void) | null>(null);
 
   function doCloseMethodModal() {
     setMethodModalOpen(false);
@@ -216,17 +203,7 @@ export default function CustomersPage() {
     }
   }
 
-  function closeMethodModal() {
-    if (methodModalOpen && editingMethod && isMethodFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseMethodModal();
-        return;
-      }
-      saveMethod();
-      return;
-    }
-    doCloseMethodModal();
-  }
+  const methodModalRequestCloseRef = useRef<(() => void) | null>(null);
 
   async function load() {
     setErr("");
@@ -345,7 +322,9 @@ export default function CustomersPage() {
       doCloseModal();
       await load();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     } finally {
       setSubmitting(false);
     }
@@ -510,7 +489,9 @@ export default function CustomersPage() {
       }
       doCloseMethodModal();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -566,7 +547,9 @@ export default function CustomersPage() {
       }
       doCloseContactModal();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -681,8 +664,11 @@ export default function CustomersPage() {
       <Modal
         open={modalOpen}
         title={editing ? "Edit Customer" : "New Customer"}
-        onClose={closeModal}
+        onClose={doCloseModal}
         wide
+        isDirty={modalOpen && isCustomerFormDirty()}
+        onSave={saveCustomer}
+        requestCloseRef={customerModalRequestCloseRef}
       >
         <form
           style={{ display: "grid", gap: 12 }}
@@ -879,7 +865,7 @@ export default function CustomersPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button type="button" onClick={closeModal}>Cancel</button>
+              <button type="button" onClick={() => customerModalRequestCloseRef.current?.()}>Cancel</button>
               <button
                 type="button"
                 className="primary"
@@ -910,7 +896,10 @@ export default function CustomersPage() {
       <Modal
         open={contactModalOpen}
         title={editingContact ? "Edit Contact" : "New Contact"}
-        onClose={closeContactModal}
+        onClose={doCloseContactModal}
+        isDirty={contactModalOpen && isContactFormDirty()}
+        onSave={saveContact}
+        requestCloseRef={contactModalRequestCloseRef}
       >
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
@@ -1042,7 +1031,7 @@ export default function CustomersPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeContactModal}>Cancel</button>
+              <button type="button" onClick={() => contactModalRequestCloseRef.current?.()}>Cancel</button>
               <button
                 type="button"
                 className="primary"
@@ -1059,7 +1048,10 @@ export default function CustomersPage() {
       <Modal
         open={methodModalOpen}
         title={editingMethod ? "Edit contact method" : "Add contact method"}
-        onClose={closeMethodModal}
+        onClose={doCloseMethodModal}
+        isDirty={methodModalOpen && isMethodFormDirty()}
+        onSave={saveMethod}
+        requestCloseRef={methodModalRequestCloseRef}
       >
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
@@ -1117,7 +1109,7 @@ export default function CustomersPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeMethodModal}>Cancel</button>
+              <button type="button" onClick={() => methodModalRequestCloseRef.current?.()}>Cancel</button>
               <button type="button" className="primary" onClick={saveMethod}>
                 {editingMethod ? "Save changes" : "Add method"}
               </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
@@ -162,7 +162,7 @@ export default function AdminMachinesPage() {
   }
 
   function isMachineFormDirty(): boolean {
-    if (!editing) return false;
+    if (editing) {
     const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
     const prevSheetW = (prevMeta as any).sheet_max_width_mm;
     const prevSheetH = (prevMeta as any).sheet_max_height_mm;
@@ -178,10 +178,15 @@ export default function AdminMachinesPage() {
       (rollMaxWidthMm || "") !== String(prevRollW ?? "") ||
       JSON.stringify(formToMeta()) !== JSON.stringify(prevMeta)
     );
+    }
+    // New machine: dirty if user has entered anything
+    return (name || "").trim() !== "" || (process || "").trim() !== "" ||
+      (notes || "").trim() !== "" || tools.length > 0 ||
+      sheetMaxWidthMm !== "" || sheetMaxHeightMm !== "" || rollMaxWidthMm !== "";
   }
 
   function isRateFormDirty(): boolean {
-    if (!editingRate) return false;
+    if (editingRate) {
     return (
       (rateOperationKey || "").trim() !== (editingRate.operation_key || "").trim() ||
       rateUnit !== (editingRate.unit || "sqm") ||
@@ -192,6 +197,11 @@ export default function AdminMachinesPage() {
       rateActive !== !!editingRate.active ||
       (rateNotes || "").trim() !== (editingRate.notes || "").trim()
     );
+    }
+    // New rate: dirty if user has entered anything
+    return (rateOperationKey || "").trim() !== "" || rateCostPerUnit !== 0 ||
+      rateSetupMinutes !== 0 || rateSetupCost !== 0 || rateMinCharge !== 0 ||
+      (rateNotes || "").trim() !== "";
   }
 
   function doCloseModal() {
@@ -201,43 +211,13 @@ export default function AdminMachinesPage() {
     setEditingRate(null);
   }
 
-  function closeModal() {
-    if (rateModalOpen && editingRate && isRateFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        setRateModalOpen(false);
-        setEditingRate(null);
-        return;
-      }
-      saveRate();
-      return;
-    }
-    if (modalOpen && editing && isMachineFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseModal();
-        return;
-      }
-      saveMachine();
-      return;
-    }
-    doCloseModal();
-  }
-
   function doCloseRateModal() {
     setRateModalOpen(false);
     setEditingRate(null);
   }
 
-  function closeRateModal() {
-    if (rateModalOpen && editingRate && isRateFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseRateModal();
-        return;
-      }
-      saveRate();
-      return;
-    }
-    doCloseRateModal();
-  }
+  const machineModalRequestCloseRef = useRef<(() => void) | null>(null);
+  const rateModalRequestCloseRef = useRef<(() => void) | null>(null);
 
   async function loadRates(machineId: string) {
     try {
@@ -301,7 +281,9 @@ export default function AdminMachinesPage() {
       doCloseModal();
       await load();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -401,7 +383,9 @@ export default function AdminMachinesPage() {
       doCloseRateModal();
       await loadRates(editing.id);
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -495,7 +479,15 @@ export default function AdminMachinesPage() {
         )}
       </div>
 
-      <Modal open={modalOpen} title={editing ? "Edit Machine" : "New Machine"} onClose={closeModal} wide>
+      <Modal
+        open={modalOpen}
+        title={editing ? "Edit Machine" : "New Machine"}
+        onClose={doCloseModal}
+        wide
+        isDirty={modalOpen && isMachineFormDirty()}
+        onSave={saveMachine}
+        requestCloseRef={machineModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
             <div className="col">
@@ -714,7 +706,7 @@ export default function AdminMachinesPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeModal}>Cancel</button>
+              <button type="button" onClick={() => machineModalRequestCloseRef.current?.()}>Cancel</button>
               <button type="button" className="primary" onClick={saveMachine} disabled={!name.trim()}>
                 {editing ? "Save" : "Create"}
               </button>
@@ -723,7 +715,14 @@ export default function AdminMachinesPage() {
         </div>
       </Modal>
 
-      <Modal open={rateModalOpen} title={editingRate ? "Edit Rate" : "Add Rate"} onClose={closeRateModal}>
+      <Modal
+        open={rateModalOpen}
+        title={editingRate ? "Edit Rate" : "Add Rate"}
+        onClose={doCloseRateModal}
+        isDirty={rateModalOpen && isRateFormDirty()}
+        onSave={saveRate}
+        requestCloseRef={rateModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
             <div className="col">
@@ -792,7 +791,7 @@ export default function AdminMachinesPage() {
             Active
           </label>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={closeRateModal}>Cancel</button>
+            <button type="button" onClick={() => rateModalRequestCloseRef.current?.()}>Cancel</button>
             <button type="button" className="primary" onClick={saveRate} disabled={!rateOperationKey.trim()}>
               {editingRate ? "Save" : "Create"}
             </button>

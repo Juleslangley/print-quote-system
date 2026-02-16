@@ -1,15 +1,20 @@
 from typing import Optional
 from sqlalchemy.orm import Mapped, mapped_column, attributes
-from sqlalchemy import String, Float, ForeignKey, DateTime, func, event
+from sqlalchemy import String, Float, ForeignKey, DateTime, BigInteger, func, event
 from app.core.db import Base
 from app.models.base import TimestampMixin
 
 IMMUTABLE_PO_NUMBER_MSG = "po_number cannot be updated once created"
 
 
+def po_number_from_id(po_id: int) -> str:
+    """Generate PO number from integer id: PO + 7 zero-padded digits."""
+    return f"PO{po_id:07d}"
+
+
 class PurchaseOrder(Base, TimestampMixin):
     __tablename__ = "purchase_orders"
-    id: Mapped[str] = mapped_column(String, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     job_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True)
     po_number: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True, nullable=True)
     supplier_id: Mapped[str] = mapped_column(String, ForeignKey("suppliers.id"), index=True)
@@ -28,30 +33,25 @@ class PurchaseOrder(Base, TimestampMixin):
     created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.id"), nullable=True, index=True)
 
 
-def _is_promotion(oldvalue, value) -> bool:
-    """True when changing from draft (DRAFT-*) to final (PO + 7 digits)."""
-    if not value or not oldvalue or oldvalue is attributes.NO_VALUE:
+def _is_valid_po_number_set(target: "PurchaseOrder", oldvalue, value) -> bool:
+    """Allow setting po_number from None to PO{id:07d} (post-insert). Reject all other changes."""
+    if value == oldvalue or oldvalue is attributes.NO_VALUE:
+        return True
+    if oldvalue is not None and str(oldvalue).strip() != "":
+        return False  # Cannot change existing po_number
+    # Allow None -> PO{id:07d} when value matches id
+    if not value or not hasattr(target, "id") or target.id is None:
         return False
-    s_old, s_new = str(oldvalue), str(value)
-    return (
-        s_old.startswith("DRAFT-")
-        and len(s_new) == 9
-        and s_new.startswith("PO")
-        and s_new[2:].isdigit()
-    )
+    expected = po_number_from_id(int(target.id))
+    return str(value) == expected
 
 
 def _po_number_set_listener(target: "PurchaseOrder", value, oldvalue, initiator):
-    """ORM-level guard: only allow create or promotion (DRAFT-* -> PO*)."""
-    state = attributes.instance_state(target)
-    if not state.persistent:
-        return value  # new instance (create path)
-    if value == oldvalue:
-        return value  # no change
-    if oldvalue is attributes.NO_VALUE:
-        return value  # load/init
-    if _is_promotion(oldvalue, value):
-        return value  # promote draft to final via get_next_po_number
+    """ORM-level guard: only allow initial set from None to PO{id:07d} after insert."""
+    if value == oldvalue or oldvalue is attributes.NO_VALUE:
+        return value
+    if _is_valid_po_number_set(target, oldvalue, value):
+        return value
     raise ValueError(IMMUTABLE_PO_NUMBER_MSG)
 
 
@@ -59,21 +59,26 @@ event.listen(PurchaseOrder.po_number, "set", _po_number_set_listener, retval=Tru
 
 
 def _reject_po_number_change(mapper, connection, target):
-    """before_update: allow only promotion (DRAFT-* -> PO*); reject other po_number changes."""
+    """before_update: reject any po_number change (it is derived from id)."""
     state = attributes.instance_state(target)
     if not state.persistent:
         return
     hist = state.attrs.po_number.history
     if not hist.has_changes():
         return
-    oldvalue, _, newvalue = hist.deleted, hist.unchanged, hist.added
-    oldval = (oldvalue[0] if oldvalue else None) or attributes.NO_VALUE
-    newval = (newvalue[0] if newvalue else None)
-    if _is_promotion(oldval, newval):
-        return
     raise ValueError(IMMUTABLE_PO_NUMBER_MSG)
 
 
-@event.listens_for(PurchaseOrder, "before_update")
-def _before_purchase_order_update(mapper, connection, target):
-    _reject_po_number_change(mapper, connection, target)
+@event.listens_for(PurchaseOrder, "after_insert")
+def _after_purchase_order_insert(mapper, connection, target):
+    """Set po_number from id after insert: PO + 7 zero-padded digits."""
+    from sqlalchemy import update
+    if target.id is not None:
+        po_num = po_number_from_id(int(target.id))
+        connection.execute(
+            update(PurchaseOrder.__table__)
+            .where(PurchaseOrder.__table__.c.id == target.id)
+            .values(po_number=po_num)
+        )
+        # Update in-memory object so it's consistent
+        attributes.set_committed_value(target, "po_number", po_num)

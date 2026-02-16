@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
@@ -94,17 +94,7 @@ export default function AdminUsersPage() {
     setShowResetPassword(false);
   }
 
-  function closeModal() {
-    if (modalOpen && isUserFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        doCloseModal();
-        return;
-      }
-      saveUser();
-      return;
-    }
-    doCloseModal();
-  }
+  const modalRequestCloseRef = useRef<(() => void) | null>(null);
 
   async function load() {
     setErr("");
@@ -170,7 +160,9 @@ export default function AdminUsersPage() {
       }
       await load();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -296,7 +288,14 @@ export default function AdminUsersPage() {
         )}
       </div>
 
-      <Modal open={modalOpen} title={editing ? "Edit User" : "New User"} onClose={closeModal}>
+      <Modal
+        open={modalOpen}
+        title={editing ? "Edit User" : "New User"}
+        onClose={doCloseModal}
+        isDirty={modalOpen && isUserFormDirty()}
+        onSave={saveUser}
+        requestCloseRef={modalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
             <div className="col">
@@ -429,7 +428,7 @@ export default function AdminUsersPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeModal}>Cancel</button>
+              <button type="button" onClick={() => modalRequestCloseRef.current?.()}>Cancel</button>
               {!tempPasswordShown && (
                 <button
                   type="button"

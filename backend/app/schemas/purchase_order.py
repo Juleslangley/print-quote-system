@@ -26,7 +26,7 @@ class PurchaseOrderUpdate(BaseModel):
 
 
 class PurchaseOrderOut(BaseModel):
-    id: str
+    id: int
     po_number: Optional[str] = None
     supplier_id: str
     status: str

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
@@ -103,6 +103,24 @@ export default function AdminInvoicesPage() {
       .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   }, [invoices, q, statusFilter, supplierFilterId, suppliers]);
 
+  function doCloseUploadModal() {
+    setUploadModalOpen(false);
+  }
+
+  function isUploadFormDirty(): boolean {
+    return !!(
+      uploadFile ||
+      uploadInvoiceNumber?.trim() ||
+      uploadInvoiceDate ||
+      uploadSubtotal?.trim() ||
+      uploadVat?.trim() ||
+      uploadTotal?.trim() ||
+      uploadCurrency !== "GBP"
+    );
+  }
+
+  const uploadModalRequestCloseRef = useRef<(() => void) | null>(null);
+
   function openUploadModal() {
     setUploadSupplierId(suppliers.length ? suppliers[0].id : "");
     setUploadFile(null);
@@ -139,12 +157,14 @@ export default function AdminInvoicesPage() {
         method: "POST",
         body: form,
       });
-      setUploadModalOpen(false);
+      doCloseUploadModal();
       await load();
       if (res?.id) setSelectedInvoice(res);
       setDetailModalOpen(true);
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -308,7 +328,15 @@ export default function AdminInvoicesPage() {
       </div>
 
       {/* Upload Modal */}
-      <Modal open={uploadModalOpen} title="Upload Invoice" onClose={() => setUploadModalOpen(false)} wide>
+      <Modal
+        open={uploadModalOpen}
+        title="Upload Invoice"
+        onClose={doCloseUploadModal}
+        wide
+        isDirty={uploadModalOpen && isUploadFormDirty()}
+        onSave={submitUpload}
+        requestCloseRef={uploadModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <div className="row">
             <div className="col">
@@ -390,7 +418,7 @@ export default function AdminInvoicesPage() {
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
-            <button type="button" onClick={() => setUploadModalOpen(false)}>Cancel</button>
+            <button type="button" onClick={() => uploadModalRequestCloseRef.current?.()}>Cancel</button>
             <button type="button" className="primary" onClick={submitUpload} disabled={!uploadFile || !uploadSupplierId}>
               Upload
             </button>
@@ -398,13 +426,14 @@ export default function AdminInvoicesPage() {
         </div>
       </Modal>
 
-      {/* Detail Modal */}
+      {/* Detail Modal (view-only) */}
       <Modal
         open={detailModalOpen}
         title={selectedInvoice ? `Invoice ${selectedInvoice.invoice_number || selectedInvoice.id}` : "Invoice"}
         onClose={() => { setDetailModalOpen(false); setSelectedInvoice(null); setCandidates([]); }}
         wide
         zIndex={10000}
+        confirmOnClose={false}
       >
         {selectedInvoice && (
           <div style={{ display: "grid", gap: 16 }}>

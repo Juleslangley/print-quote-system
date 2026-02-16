@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import Modal from "../../_components/Modal";
@@ -73,6 +73,9 @@ export default function MaterialsPage() {
   const [sizeCustomLengthAvailable, setSizeCustomLengthAvailable] = useState(false);
   const [sizeActive, setSizeActive] = useState(true);
   const [sizeSortOrder, setSizeSortOrder] = useState(0);
+
+  const materialModalRequestCloseRef = useRef<(() => void) | null>(null);
+  const sizeModalRequestCloseRef = useRef<(() => void) | null>(null);
 
   async function load() {
     setErr("");
@@ -306,28 +309,7 @@ export default function MaterialsPage() {
     setEditingSize(null);
   }
 
-  function closeMaterialModal() {
-    if (modalOpen && isMaterialFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        closeModal();
-        return;
-      }
-      saveMaterial();
-      return;
-    }
-    closeModal();
-  }
-
-  function closeSizeModal() {
-    if (sizeModalOpen && isSizeFormDirty()) {
-      if (!confirm("Do you wish to save your changes?")) {
-        setSizeModalOpen(false);
-        setEditingSize(null);
-        return;
-      }
-      saveSize();
-      return;
-    }
+  function closeSizeModalOnly() {
     setSizeModalOpen(false);
     setEditingSize(null);
   }
@@ -395,7 +377,9 @@ export default function MaterialsPage() {
       setEditingSize(null);
       await loadSizes(editing.id);
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -483,7 +467,9 @@ export default function MaterialsPage() {
       closeModal();
       await load();
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -738,8 +724,11 @@ export default function MaterialsPage() {
       <Modal
         open={modalOpen}
         title={editing ? "Edit Material" : "New Material"}
-        onClose={closeMaterialModal}
+        onClose={closeModal}
         wide
+        isDirty={modalOpen && isMaterialFormDirty()}
+        onSave={saveMaterial}
+        requestCloseRef={materialModalRequestCloseRef}
       >
         <form
           style={{ display: "grid", gap: 16 }}
@@ -1090,7 +1079,7 @@ export default function MaterialsPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeMaterialModal}>Cancel</button>
+              <button type="button" onClick={() => materialModalRequestCloseRef.current?.()}>Cancel</button>
               <button
                 type="button"
                 className="primary"
@@ -1111,9 +1100,12 @@ export default function MaterialsPage() {
       <Modal
         open={sizeModalOpen}
         title={editingSize ? (matType === "roll" ? "Edit Roll Width" : "Edit Size") : (matType === "roll" ? "Add Roll Width" : "Add Size")}
-        onClose={closeSizeModal}
+        onClose={closeSizeModalOnly}
         wide
         zIndex={10000}
+        isDirty={sizeModalOpen && isSizeFormDirty()}
+        onSave={saveSize}
+        requestCloseRef={sizeModalRequestCloseRef}
       >
         <form
           style={{ display: "grid", gap: 12 }}
@@ -1212,7 +1204,7 @@ export default function MaterialsPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={closeSizeModal}>Cancel</button>
+              <button type="button" onClick={() => sizeModalRequestCloseRef.current?.()}>Cancel</button>
               <button type="submit" className="primary" disabled={!sizeLabel.trim()}>
                 {editingSize ? "Save" : "Create"}
               </button>

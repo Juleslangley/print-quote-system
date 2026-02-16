@@ -35,7 +35,7 @@ from app.models.purchase_order_line import PurchaseOrderLine
 router = APIRouter()
 
 # Order: parents before children (for insert). Truncate uses reverse order with CASCADE.
-# PO numbers use native sequence purchase_orders_seq; not backed up.
+# PO numbers are derived from id; no separate sequence.
 BACKUP_TABLES = [
     ("users", User),
     ("suppliers", Supplier),
@@ -147,20 +147,12 @@ def restore_backup(file: UploadFile, db: Session = Depends(get_db), _=Depends(re
                 db.rollback()
                 raise HTTPException(status_code=500, detail=f"Insert {table_name}: {e}")
 
-    # Sync PO sequence so next PO number is max(existing) + 1
+    # Sync purchase_orders id identity sequence so next id is max(id)+1
     db.execute(
         text("""
             SELECT setval(
-                'purchase_orders_seq',
-                COALESCE(
-                    (
-                        SELECT MAX((regexp_replace(po_number, '\\D', '', 'g'))::integer)
-                        FROM purchase_orders
-                        WHERE po_number IS NOT NULL
-                          AND regexp_replace(po_number, '\\D', '', 'g') ~ '^[0-9]+$'
-                    ),
-                    0
-                )
+                pg_get_serial_sequence('purchase_orders', 'id'),
+                COALESCE((SELECT MAX(id) FROM purchase_orders), 0)
             )
         """)
     )

@@ -14,7 +14,7 @@ from app.models.purchase_order import PurchaseOrder, IMMUTABLE_PO_NUMBER_MSG
 def mock_po():
     """A persisted PO with po_number PO0000002."""
     po = MagicMock(spec=PurchaseOrder)
-    po.id = "test-po-b-id"
+    po.id = 2
     po.po_number = "PO0000002"
     po.supplier_id = "supplier-1"
     po.status = "draft"
@@ -44,7 +44,7 @@ def test_update_with_po_number_in_payload_returns_400_and_db_unchanged(mock_po):
     try:
         client = TestClient(app)
         response = client.put(
-            f"/api/purchase-orders/{mock_po.id}",
+            f"/api/purchase-orders/{int(mock_po.id)}",
             json={"po_number": "PO0000001"},  # PO A's number; must not overwrite B
         )
         assert response.status_code == 400
@@ -60,7 +60,7 @@ def test_update_without_po_number_excludes_it_from_apply():
     """model_dump must exclude po_number so setattr never sees it."""
     from app.schemas.purchase_order import PurchaseOrderUpdate
 
-    payload = PurchaseOrderUpdate(status="sent", po_number="PO0000001")
+    payload = PurchaseOrderUpdate(status="sent", po_number="PO0000001")  # po_number immutable
     data = payload.model_dump(exclude_unset=True, exclude={"po_number"})
     assert "po_number" not in data
     assert data.get("status") == "sent"
@@ -70,7 +70,7 @@ def test_orm_guard_raises_when_setting_po_number_on_persistent_instance():
     """Attribute set listener raises ValueError when po_number is set on a persistent PO (immutable)."""
     from unittest.mock import patch, MagicMock
     po = PurchaseOrder(
-        id="test-id",
+        id=2,
         po_number="PO0000002",
         supplier_id="supplier-1",
         status="draft",

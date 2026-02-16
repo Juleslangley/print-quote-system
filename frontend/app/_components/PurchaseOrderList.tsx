@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useDirtyState } from "../_hooks/useDirtyState";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import Modal from "./Modal";
@@ -82,18 +83,31 @@ export default function PurchaseOrderList({
     router.push(detailHref(poId));
   }
 
+  function doCloseNewPOModal() {
+    setNewPOModalOpen(false);
+  }
+
+  const { setBaseline, isDirty: isNewPOFormDirty } = useDirtyState<{ supplierId: string }>();
+  useEffect(() => {
+    if (newPOModalOpen) setBaseline({ supplierId: "" });
+  }, [newPOModalOpen, setBaseline]);
+
+  const newPOModalRequestCloseRef = useRef<(() => void) | null>(null);
+
   async function createNewPO() {
     if (!newPOSupplierId) {
       setErr("Select a supplier");
-      return;
+      throw new Error("Select a supplier");
     }
     setErr("");
     try {
       const po = await api.post<PO>("/api/purchase-orders", { supplier_id: newPOSupplierId });
-      setNewPOModalOpen(false);
+      doCloseNewPOModal();
       openDetail(po.id);
     } catch (e: any) {
-      setErr(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      setErr(msg);
+      throw e;
     }
   }
 
@@ -310,7 +324,14 @@ export default function PurchaseOrderList({
         )}
       </div>
 
-      <Modal open={newPOModalOpen} title="New purchase order" onClose={() => setNewPOModalOpen(false)}>
+      <Modal
+        open={newPOModalOpen}
+        title="New purchase order"
+        onClose={doCloseNewPOModal}
+        isDirty={newPOModalOpen && isNewPOFormDirty({ supplierId: newPOSupplierId })}
+        onSave={createNewPO}
+        requestCloseRef={newPOModalRequestCloseRef}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <div>
             <label className="subtle">Supplier</label>
@@ -329,7 +350,7 @@ export default function PurchaseOrderList({
           </div>
           {err && newPOModalOpen && <div style={{ color: "#c00", fontSize: 14 }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => setNewPOModalOpen(false)}>
+            <button type="button" onClick={() => newPOModalRequestCloseRef.current?.()}>
               Cancel
             </button>
             <button type="button" className="primary" onClick={createNewPO} disabled={!newPOSupplierId}>

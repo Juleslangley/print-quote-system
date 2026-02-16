@@ -48,7 +48,7 @@ def _html_to_pdf_bytes(html: str) -> bytes:
     return HTML(string=html).write_pdf()
 
 
-def render_purchase_order_for_session(db: Session, po_id: str, user_id: str) -> str:
+def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> str:
     """
     DB-session variant (used internally and by API hooks).
     Returns the created file_id.
@@ -120,7 +120,7 @@ def render_purchase_order_for_session(db: Session, po_id: str, user_id: str) -> 
     return file_id
 
 
-def render_purchase_order(po_id: str, user_id: str) -> str:
+def render_purchase_order(po_id: int, user_id: str) -> str:
     """
     Render a Purchase Order PDF using the active HTML template.
     Returns the created file_id.
