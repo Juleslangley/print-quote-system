@@ -24,6 +24,7 @@ from app.schemas.purchase_order import (
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
 from app.services.po_number import get_next_po_number
 from app.services.pdfs.purchase_order_pdf import build_po_pdf
+from app.services.document_renderer import render_purchase_order
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy import text
 
@@ -308,16 +309,23 @@ def set_po_status(
     po_id: str,
     payload: StatusIn,
     db: Session = Depends(get_db),
-    _=Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
     # TODO-REMOVE: TEMP debug logging (this endpoint only sets status, not po_number)
     logger.info("PO status entry: %s %s | payload keys: %s", request.method, request.url.path, list(payload.model_dump().keys()))
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    allowed = {"draft", "sent", "part_received", "received", "cancelled"}
+    allowed = {"draft", "processed", "sent", "part_received", "received", "cancelled"}
     if payload.status not in allowed:
         raise HTTPException(status_code=400, detail=f"status must be one of {allowed}")
+
+    if payload.status == "processed":
+        try:
+            render_purchase_order(po.id, user.id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Auto PDF render failed: {e}")
+
     po.status = payload.status
     db.add(po)
     db.commit()

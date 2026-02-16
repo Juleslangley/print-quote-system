@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from app.core.db import Base, engine
 import app.models  # noqa: F401 - register all tables
-from app.api import auth, customers, materials, material_sizes, rates, templates, quotes, seed, machines, machine_rates, operations, template_admin
+from app.api import auth, customers, materials, material_sizes, rates, templates, quotes, seed, machines, machine_rates, operations, template_admin, documents
 from app.api import customer_contacts, customer_contact_methods, users
 from app.api import margin_profiles, pricing_rules, suppliers, purchase_orders, purchase_order_lines, backup, health, jobs, packing
 
@@ -139,6 +139,7 @@ app.include_router(machine_rates.router, prefix="/api", tags=["machine-rates"])
 app.include_router(operations.router, prefix="/api", tags=["operations"])
 app.include_router(templates.router, prefix="/api", tags=["templates"])
 app.include_router(template_admin.router, prefix="/api", tags=["template-admin"])
+app.include_router(documents.router, prefix="/api", tags=["documents"])
 app.include_router(quotes.router, prefix="/api", tags=["quotes"])
 app.include_router(jobs.router, prefix="/api")
 app.include_router(packing.router, prefix="/api")
