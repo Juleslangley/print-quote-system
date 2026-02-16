@@ -41,8 +41,12 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
     return TokenOut(access_token=token)
 
 
-@router.get("/me", response_model=MeOut)
-def me(user: User = Depends(get_current_user)):
+@router.get("/auth/me", response_model=MeOut)
+def auth_me(user: User = Depends(get_current_user)):
+    return _me_response(user)
+
+
+def _me_response(user: User) -> MeOut:
     return MeOut(
         id=user.id,
         email=user.email,
@@ -53,3 +57,9 @@ def me(user: User = Depends(get_current_user)):
         menu_deny=list(getattr(user, "menu_deny", None) or []),
         visible_menu=_visible_menu(user),
     )
+
+
+@router.get("/me", response_model=MeOut)
+def me(user: User = Depends(get_current_user)):
+    """Current user. Alias for /auth/me for backward compatibility."""
+    return _me_response(user)
