@@ -10,6 +10,7 @@ const ADMIN_LINKS: { key: string; href: string; label: string }[] = [
   { key: "admin.rates", href: "/admin/rates", label: "Rates (view + edit)" },
   { key: "admin.operations", href: "/admin/operations", label: "Operations library" },
   { key: "admin.templates", href: "/admin/templates", label: "Templates + operation order" },
+  { key: "admin.documents", href: "/admin/documents", label: "Documents" },
   { key: "admin.margins", href: "/admin/margins", label: "Margin profiles" },
   { key: "admin.purchase_orders", href: "/admin/purchase-orders", label: "Purchase orders" },
   { key: "admin.packing", href: "/admin/packing", label: "Packing Proof" },
