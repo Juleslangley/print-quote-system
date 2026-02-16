@@ -30,6 +30,8 @@ services:
       PRICING_VERSION: ${PRICING_VERSION}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - backend_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -62,3 +64,4 @@ services:
 
 volumes:
   pgdata:
+  backend_uploads:

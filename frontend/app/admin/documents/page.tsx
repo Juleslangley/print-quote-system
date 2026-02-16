@@ -144,7 +144,7 @@ export default function AdminDocumentsPage() {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0 }}>Documents</h1>
-          <div className="subtle">Editable HTML (Jinja2) templates. PDFs generate automatically when a PO is processed.</div>
+          <div className="subtle">Templates only. Editing templates affects future PDFs. PDFs generate automatically when a PO is processed.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button type="button" onClick={load} disabled={loading}>

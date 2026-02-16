@@ -28,7 +28,7 @@ from app.schemas.purchase_order import (
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
 from app.services.po_number import get_next_po_number
 from app.services.pdfs.purchase_order_pdf import build_po_pdf
-from app.services.document_renderer import render_purchase_order
+from app.services.purchase_order_workflow import transition_po_status
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy import text
 
@@ -254,18 +254,17 @@ def update_purchase_order(
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    old_status = po.status
     data = payload.model_dump(exclude_unset=True, exclude={"po_number"})
+    requested_status = data.get("status") if "status" in data else None
+    # Apply status transition via single source of truth (includes render hook)
+    if requested_status is not None:
+        transition_po_status(db, po, str(requested_status), user.id)
+        # Remove status so the generic attribute setter doesn't overwrite status again
+        data.pop("status", None)
     for k, v in data.items():
         if k == "po_number":
             continue
         setattr(po, k, v)
-
-    if data.get("status") == "processed" and old_status != "processed":
-        try:
-            render_purchase_order(po.id, user.id)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Auto PDF render failed: {e}")
     db.add(po)
     db.commit()
     db.refresh(po)
@@ -327,20 +326,13 @@ def set_po_status(
 ):
     # TODO-REMOVE: TEMP debug logging (this endpoint only sets status, not po_number)
     logger.info("PO status entry: %s %s | payload keys: %s", request.method, request.url.path, list(payload.model_dump().keys()))
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).with_for_update().first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     allowed = {"draft", "processed", "sent", "part_received", "received", "cancelled"}
     if payload.status not in allowed:
         raise HTTPException(status_code=400, detail=f"status must be one of {allowed}")
-
-    if payload.status == "processed":
-        try:
-            render_purchase_order(po.id, user.id)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Auto PDF render failed: {e}")
-
-    po.status = payload.status
+    transition_po_status(db, po, payload.status, user.id)
     db.add(po)
     db.commit()
     db.refresh(po)

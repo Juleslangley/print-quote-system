@@ -48,7 +48,7 @@ def _html_to_pdf_bytes(html: str) -> bytes:
     return HTML(string=html).write_pdf()
 
 
-def _render_purchase_order_with_db(db: Session, po_id: str, user_id: str) -> str:
+def render_purchase_order_for_session(db: Session, po_id: str, user_id: str) -> str:
     """
     DB-session variant (used internally and by API hooks).
     Returns the created file_id.
@@ -117,7 +117,6 @@ def _render_purchase_order_with_db(db: Session, po_id: str, user_id: str) -> str
         created_by_user_id=user_id,
     )
     db.add(dr)
-    db.commit()
     return file_id
 
 
@@ -128,7 +127,9 @@ def render_purchase_order(po_id: str, user_id: str) -> str:
     """
     db = SessionLocal()
     try:
-        return _render_purchase_order_with_db(db, po_id, user_id)
+        file_id = render_purchase_order_for_session(db, po_id, user_id)
+        db.commit()
+        return file_id
     finally:
         db.close()
 
