@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 
@@ -238,7 +239,7 @@ export default function AdminTemplatesPage() {
 
   return (
     <div>
-      <p><a href="/admin">← Admin</a></p>
+      <p><Link href="/admin">← Admin</Link></p>
       <h1>Templates + operation order</h1>
 
       {err && (

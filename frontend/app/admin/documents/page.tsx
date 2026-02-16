@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 
@@ -130,7 +131,7 @@ export default function AdminDocumentsPage() {
   return (
     <div>
       <p>
-        <a href="/admin">← Admin</a>
+        <Link href="/admin">← Admin</Link>
       </p>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <div>
