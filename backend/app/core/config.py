@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     JWT_SECRET: str = "dev"
     PRICING_VERSION: str = "v1.0.0"
+    ENV: str = "development"  # development|prod — dev-only endpoints (e.g. seed/reset-admin) disabled when prod
     JOB_NO_PREFIX: str = "J"  # e.g. J0001, J0002
     UPLOADS_DIR: str = "uploads"  # relative to backend root or absolute path
     # Set SQLALCHEMY_ECHO=1 in dev to log all SQL (e.g. to find which endpoint triggers UPDATE purchase_orders)

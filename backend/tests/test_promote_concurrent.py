@@ -5,34 +5,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.db import SessionLocal
-from app.api.permissions import require_admin, require_sales
 from app.models.purchase_order import PurchaseOrder
-from app.models.supplier import Supplier
 
 
-@pytest.fixture
-def app_with_auth_bypass():
-    """Override auth so we can call create and promote without real login."""
-    app.dependency_overrides[require_admin] = lambda: None
-    app.dependency_overrides[require_sales] = lambda: None
-    try:
-        yield app
-    finally:
-        app.dependency_overrides.pop(require_admin, None)
-        app.dependency_overrides.pop(require_sales, None)
-
-
-def test_promote_single_draft_to_final(app_with_auth_bypass):
+def test_promote_single_draft_to_final(app_with_auth_bypass, use_test_db, supplier_id):
     """Create one draft via API, promote it; response 200 and po_number is PO + 7 digits."""
-    db = SessionLocal()
-    try:
-        supplier = db.query(Supplier).first()
-        if not supplier:
-            pytest.skip("No supplier in DB")
-        supplier_id = supplier.id
-    finally:
-        db.close()
     client = TestClient(app_with_auth_bypass)
     create_resp = client.post(
         "/api/purchase-orders",
@@ -54,7 +31,7 @@ def test_promote_single_draft_to_final(app_with_auth_bypass):
     assert pn.startswith("PO") and len(pn) == 9 and pn[2:].isdigit(), pn
 
 
-def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass):
+def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass, use_test_db, supplier_id):
     """
     Create 20 draft POs, promote all concurrently via POST /promote.
     Assert all responses 200 and all final po_numbers unique and sequential (PO0000001, PO0000002, ...).
@@ -63,15 +40,13 @@ def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass
     db_url = os.environ.get("DATABASE_URL", "")
     if "sqlite" in db_url.lower():
         pytest.skip("Concurrency test requires Postgres (FOR UPDATE)")
+    from app.core.db import SessionLocal
     db = SessionLocal()
     try:
-        supplier = db.query(Supplier).first()
-        if not supplier:
-            pytest.skip("No supplier in DB; create one to run this test")
         pos = []
         for _ in range(20):
             po = PurchaseOrder(
-                supplier_id=supplier.id,
+                supplier_id=supplier_id,
                 status="draft",
                 delivery_name="",
                 delivery_address="",
@@ -129,16 +104,8 @@ def test_concurrent_promote_20_drafts_unique_and_sequential(app_with_auth_bypass
         db.close()
 
 
-def test_create_10_new_pos(app_with_auth_bypass):
+def test_create_10_new_pos(app_with_auth_bypass, use_test_db, supplier_id):
     """Create 10 new POs via API (create draft + promote). All get unique PO numbers."""
-    db = SessionLocal()
-    try:
-        supplier = db.query(Supplier).first()
-        if not supplier:
-            pytest.skip("No supplier in DB")
-        supplier_id = supplier.id
-    finally:
-        db.close()
 
     client = TestClient(app_with_auth_bypass)
     po_numbers = []
@@ -163,6 +130,7 @@ def test_create_10_new_pos(app_with_auth_bypass):
     assert len(set(po_numbers)) == 10, "All PO numbers must be unique"
 
     # Cleanup
+    from app.core.db import SessionLocal
     db = SessionLocal()
     try:
         for po_id in created_ids:

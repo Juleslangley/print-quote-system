@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "018_document_system_html_templates"
+revision: str = "018_doc_system_html"
 down_revision: Union[str, None] = "017_drop_document_templates"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

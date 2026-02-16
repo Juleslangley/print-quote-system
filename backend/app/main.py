@@ -57,8 +57,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Starter: auto-create tables. For production, move to Alembic migrations.
-Base.metadata.create_all(bind=engine)
+# Tables are managed by Alembic. Run `alembic upgrade head` before starting the app.
+# Optionally warn at startup if key tables appear missing.
+try:
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1 FROM purchase_orders LIMIT 1"))
+except Exception as e:
+    if "does not exist" in str(e).lower() or "relation" in str(e).lower():
+        logger.warning(
+            "Database tables may be missing. Run: alembic upgrade head. Original error: %s",
+            e,
+        )
+    else:
+        logger.warning("Database check at startup: %s", e)
 
 # Optional: add columns to existing tables (dev-safe; skip if tables/columns already exist)
 try:
@@ -116,8 +127,7 @@ try:
             conn.execute(text(f"ALTER TABLE machines ADD COLUMN IF NOT EXISTS {col} {col_type}"))
 except Exception as e:
     logger.warning("Startup ALTERs skipped (non-fatal): %s", e)
-# Note: No Alembic in this project. For dev, ALTERs above add new columns; create_all() creates new tables (e.g. customer_contact_methods).
-# To reset dev DB: drop and recreate the database, then restart the app so create_all() runs.
+# Note: Schema is managed by Alembic. ALTERs above are legacy dev adds; prefer adding columns via migrations.
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])

@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, clearToken } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type Material = any;
@@ -534,20 +534,51 @@ export default function MaterialsPage() {
     setErr("");
     setOrderingMaterialId(m.id);
     try {
-      const po = await api.post<{ id: string }>("/api/purchase-orders", { supplier_id: supplierId });
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch("/api/purchase-orders/from-material", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ material_id: m.id, supplier_id: supplierId }),
+      });
+      const text = await res.text();
       setOrderingMaterialId(null);
+      if (res.status === 401) {
+        clearToken();
+        window.location.href = "/";
+        return;
+      }
+      if (!res.ok) {
+        let msg = text || `Request failed with status ${res.status}`;
+        try {
+          const j = JSON.parse(text);
+          if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+        } catch {
+          /* use msg as-is */
+        }
+        setErr(msg === "Forbidden" || res.status === 403
+          ? "You need admin rights to create purchase orders. Log in as an admin."
+          : msg);
+        return;
+      }
+      let po: { id?: string | number } | null = null;
+      try {
+        po = text ? JSON.parse(text) : null;
+      } catch {
+        setErr("Failed to parse purchase order response.");
+        return;
+      }
       if (!po?.id) {
         setErr("Failed to create purchase order: no id returned.");
         return;
       }
-      const base = typeof window !== "undefined" && process.env.NEXT_PUBLIC_BASE_PATH ? String(process.env.NEXT_PUBLIC_BASE_PATH).replace(/\/$/, "") : "";
-      window.location.href = `${base}/admin/purchase-orders/${po.id}?from=materials&materialId=${m.id}`;
+      router.push(`/admin/purchase-orders/${po.id}?from=materials&materialId=${m.id}`);
     } catch (e: any) {
       setOrderingMaterialId(null);
-      const msg = e instanceof ApiError ? e.message : String(e);
-      setErr(msg === "Forbidden" || (e instanceof ApiError && e.status === 403)
-        ? "You need admin rights to create purchase orders. Log in as an admin."
-        : msg);
+      setErr(e?.message || String(e));
     }
   }
 

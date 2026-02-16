@@ -23,9 +23,11 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    working_dir: /app
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      # Use Postgres in Docker; override .env if it points to sqlite
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
       PRICING_VERSION: ${PRICING_VERSION}
     ports:

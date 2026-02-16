@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, clearToken } from "@/lib/api";
+import { clearToken } from "@/lib/api";
 
 type Me = {
   id: string;
@@ -46,21 +46,40 @@ export default function Nav() {
   }, []);
 
   useEffect(() => {
-    if (!token) {
-      setMe(null);
-      setAuthUnavailable(false);
-      return;
-    }
-    setAuthUnavailable(false);
-    api<Me>("/api/me")
-      .then((data) => {
+    async function loadMe() {
+      try {
+        const res = await fetch("/api/auth/me", {
+          headers: token
+            ? { Authorization: `Bearer ${token}` }
+            : {},
+        });
+
+        // 401 = logged out, backend OK
+        if (res.status === 401) {
+          clearToken();
+          setMe(null);
+          setAuthUnavailable(false);
+          return;
+        }
+
+        // Any non-OK other than 401 = backend problem
+        if (!res.ok) {
+          setMe(null);
+          setAuthUnavailable(true);
+          return;
+        }
+
+        const data = await res.json();
         setMe(data);
         setAuthUnavailable(false);
-      })
-      .catch(() => {
+      } catch (e) {
+        // Network error
         setMe(null);
         setAuthUnavailable(true);
-      });
+      }
+    }
+
+    loadMe();
   }, [token]);
 
   const visibleSet = me?.visible_menu ? new Set(me.visible_menu) : null;

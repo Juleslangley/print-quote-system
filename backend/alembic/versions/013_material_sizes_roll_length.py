@@ -19,7 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("material_sizes", sa.Column("length_m", sa.Float(), nullable=True))
+    op.execute(sa.text("ALTER TABLE material_sizes ADD COLUMN IF NOT EXISTS length_m FLOAT"))
 
 
 def downgrade() -> None:

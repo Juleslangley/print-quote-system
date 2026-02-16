@@ -1,4 +1,4 @@
-# Import all models so Base.metadata.create_all() creates every table.
+# Import all models so Base.metadata is complete (for Alembic autogenerate and ORM).
 from .user import User
 from .customer import Customer
 from .material import Material

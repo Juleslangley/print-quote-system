@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import update
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.security import hash_password
 from app.models.base import new_id
@@ -42,6 +44,37 @@ def upsert_material(db: Session, name: str, **kwargs) -> Material:
         db.add(m)
     db.flush()
     return m
+
+def _is_dev() -> bool:
+    e = (settings.ENV or "").lower()
+    return e not in ("prod", "production")
+
+
+@router.post("/seed/reset-admin")
+def reset_admin(db: Session = Depends(get_db)):
+    """Dev-only: reset admin@local password to 'admin'. Returns 404 in production."""
+    if not _is_dev():
+        raise HTTPException(status_code=404, detail="Not found")
+    hashed = hash_password("admin")  # same hasher as auth login's verify_password
+    admin = db.query(User).filter(User.email == "admin@local").first()
+    if not admin:
+        admin = User(
+            id=new_id(),
+            email="admin@local",
+            password_hash=hashed,
+            role="admin",
+            active=True,
+        )
+        db.add(admin)
+    else:
+        db.execute(
+            update(User)
+            .where(User.email == "admin@local")
+            .values(password_hash=hashed, role="admin", active=True)
+        )
+    db.commit()
+    return {"ok": True, "email": "admin@local"}
+
 
 @router.post("/seed/dev")
 def seed_dev(db: Session = Depends(get_db)):

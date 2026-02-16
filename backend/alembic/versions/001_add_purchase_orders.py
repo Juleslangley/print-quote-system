@@ -12,21 +12,15 @@ import sqlalchemy as sa
 
 
 revision: str = "001_add_po"
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = "000_baseline"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
     op.create_table(
-        "purchase_orders_sequence",
-        sa.Column("name", sa.String(), nullable=False),
-        sa.Column("next_val", sa.Integer(), nullable=True, server_default="1"),
-        sa.PrimaryKeyConstraint("name"),
-    )
-    op.create_table(
         "purchase_orders",
-        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("po_number", sa.String(), nullable=True),
         sa.Column("supplier_id", sa.String(), nullable=True),
         sa.Column("status", sa.String(), nullable=True, server_default="draft"),
@@ -46,7 +40,6 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True),
         sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["supplier_id"], ["suppliers.id"], ondelete="RESTRICT"),
-        sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_purchase_orders_po_number"), "purchase_orders", ["po_number"], unique=True)
     op.create_index(op.f("ix_purchase_orders_supplier_id"), "purchase_orders", ["supplier_id"], unique=False)
@@ -54,7 +47,7 @@ def upgrade() -> None:
     op.create_table(
         "purchase_order_lines",
         sa.Column("id", sa.String(), nullable=False),
-        sa.Column("po_id", sa.String(), nullable=True),
+        sa.Column("po_id", sa.BigInteger(), nullable=True),
         sa.Column("sort_order", sa.Integer(), nullable=True, server_default="0"),
         sa.Column("material_id", sa.String(), nullable=True),
         sa.Column("material_size_id", sa.String(), nullable=True),
@@ -87,4 +80,3 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_purchase_orders_supplier_id"), table_name="purchase_orders")
     op.drop_index(op.f("ix_purchase_orders_po_number"), table_name="purchase_orders")
     op.drop_table("purchase_orders")
-    op.drop_table("purchase_orders_sequence")

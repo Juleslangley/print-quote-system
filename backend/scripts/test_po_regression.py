@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Regression script: create 3 purchase orders and verify:
-- No sequence errors (purchase_orders_seq removed)
+- No custom PO sequence errors
 - po_numbers are PO0000001, PO0000002, PO0000003 (or continue correctly)
 - Unique constraint on po_number holds
 Run from backend dir: python scripts/test_po_regression.py

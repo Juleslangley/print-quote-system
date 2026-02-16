@@ -128,7 +128,8 @@ async function request<T = unknown>(path: string, opts: RequestInit = {}): Promi
     pushApiError({ message: errorMessageFromDetails(text || res.statusText, res.status, details), status: res.status, body: text || "", ts: Date.now() });
     if (res.status === 401) {
       clearToken();
-      if (typeof window !== "undefined") window.location.href = "/";
+      const isAuthCheck = path === "/api/auth/me" || path === "/api/me";
+      if (!isAuthCheck && typeof window !== "undefined") window.location.href = "/";
     }
     throw new ApiError(res.status, text || res.statusText, details);
   }

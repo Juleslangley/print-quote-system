@@ -103,7 +103,7 @@ def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> 
         mime="application/pdf",
         size=len(pdf_bytes),
         sha256=sha256,
-        uploaded_by=user_id,
+        uploaded_by=user_id if user_id else None,
     )
     db.add(file_row)
     db.flush()
@@ -114,7 +114,7 @@ def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> 
         entity_id=po_id,
         template_id=tpl.id,
         file_id=file_id,
-        created_by_user_id=user_id,
+        created_by_user_id=user_id if user_id else None,
     )
     db.add(dr)
     return file_id

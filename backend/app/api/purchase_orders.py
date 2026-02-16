@@ -14,6 +14,8 @@ from app.models.user import User
 from app.models.supplier import Supplier
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_line import PurchaseOrderLine
+from app.models.material import Material
+from app.models.material_size import MaterialSize
 from app.models.document_render import DocumentRender
 from app.models.file import File as FileRow
 from app.models.base import new_id
@@ -76,6 +78,78 @@ def list_purchase_orders(
             (PurchaseOrder.po_number.ilike(ql)) | (PurchaseOrder.supplier_id.in_(supplier_ids))
         )
     return query.all()
+
+
+class FromMaterialIn(PydanticBase):
+    material_id: str
+    qty: float = 1.0
+    supplier_id: Optional[str] = None
+
+
+@router.post("/purchase-orders/from-material", response_model=PurchaseOrderOut)
+def create_po_from_material(
+    payload: FromMaterialIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Create a draft PO with one line for the given material. Supplier from material if not provided."""
+    mat = db.query(Material).filter(Material.id == payload.material_id).first()
+    if not mat:
+        raise HTTPException(status_code=404, detail="Material not found")
+    supplier_id = payload.supplier_id or mat.supplier_id
+    if not supplier_id and mat.supplier:
+        sup = db.query(Supplier).filter(Supplier.name == mat.supplier).first()
+        supplier_id = sup.id if sup else None
+    if not supplier_id:
+        raise HTTPException(status_code=400, detail="Material has no supplier. Set supplier on material first.")
+    sup = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+    if not sup:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    po = PurchaseOrder(
+        supplier_id=supplier_id,
+        status="draft",
+        currency="GBP",
+        delivery_name="",
+        delivery_address="",
+        notes="",
+        internal_notes="",
+        created_by_user_id=user.id if user else None,
+    )
+    db.add(po)
+    db.flush()
+    qty = max(0.0, float(payload.qty)) if payload.qty is not None else 1.0
+    uom = "sheet" if (mat.type or "").lower() == "sheet" else "lm"
+    unit_cost = 0.0
+    first_size = (
+        db.query(MaterialSize)
+        .filter(MaterialSize.material_id == mat.id, MaterialSize.active.is_(True))
+        .order_by(MaterialSize.sort_order.asc(), MaterialSize.width_mm.asc())
+        .first()
+    )
+    if first_size:
+        unit_cost = float(first_size.cost_per_sheet_gbp or first_size.cost_per_lm_gbp or 0)
+    else:
+        unit_cost = float(mat.cost_per_sheet_gbp or mat.cost_per_lm_gbp or 0)
+    line_total = round(qty * unit_cost, 2)
+    line = PurchaseOrderLine(
+        id=new_id(),
+        po_id=po.id,
+        sort_order=0,
+        material_id=mat.id,
+        material_size_id=first_size.id if first_size else None,
+        description=mat.name or "",
+        supplier_product_code=mat.supplier_product_code or "",
+        qty=qty,
+        uom=uom,
+        unit_cost_gbp=unit_cost,
+        line_total_gbp=line_total,
+    )
+    db.add(line)
+    db.flush()
+    _recalc_po_totals(db, po.id)
+    db.commit()
+    db.refresh(po)
+    return po
 
 
 @router.post("/purchase-orders/clear-all", status_code=204)
@@ -171,7 +245,7 @@ def promote_purchase_order(
             status_code=400,
             detail="Only draft purchase orders can be promoted",
         )
-    transition_po_status(db, po, "processed", user.id if user else "")
+    transition_po_status(db, po, "processed", (user.id or None) if user else None)
     db.add(po)
     db.commit()
     db.refresh(po)

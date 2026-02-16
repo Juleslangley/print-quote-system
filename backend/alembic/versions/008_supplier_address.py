@@ -1,7 +1,7 @@
 """Add address, city, postcode, country to suppliers.
 
 Revision ID: 008_supplier_address
-Revises: 007_po_sequences_consolidate
+Revises: 005_backfill_job
 Create Date: supplier address fields
 
 """
@@ -11,7 +11,7 @@ from alembic import op
 
 
 revision: str = "008_supplier_address"
-down_revision: Union[str, None] = "007_po_sequences_consolidate"
+down_revision: Union[str, None] = "005_backfill_job"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

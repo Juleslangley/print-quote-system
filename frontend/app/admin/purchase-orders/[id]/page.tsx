@@ -666,7 +666,7 @@ export default function PurchaseOrderDetailPage() {
           <div><strong>Total</strong> £{po.total_gbp?.toFixed(2)}</div>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-          {isDraftPoNumber && (
+          {(po.status === "draft" || po.status === "sent" || po.status === "processed") && (
             <button type="button" className="primary" onClick={processOrder} disabled={processingOrder}>
               {processingOrder ? "Processing…" : "Process order"}
             </button>
