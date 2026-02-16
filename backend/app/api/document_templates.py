@@ -203,6 +203,28 @@ def download_document_template(doc_type: str, db: Session = Depends(get_db), _: 
     )
 
 
+@router.get("/document-templates/{doc_type}/view")
+def view_document_template(doc_type: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Open the template inline in the browser (preview)."""
+    _validate_doc_type(doc_type)
+    t = db.query(DocumentTemplate).filter(DocumentTemplate.doc_type == doc_type).first()
+    if not t or not t.file_id:
+        raise HTTPException(status_code=404, detail="No template uploaded")
+    f = db.query(FileRow).filter(FileRow.id == t.file_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Template file not found")
+    path = UPLOADS_DIR / f.storage_key
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Template file missing on disk")
+    data = path.read_bytes()
+    filename = t.filename or f"{doc_type}.pdf"
+    return Response(
+        content=data,
+        media_type=f.mime or "application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @router.delete("/document-templates/{doc_type}")
 def delete_document_template(doc_type: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     _validate_doc_type(doc_type)

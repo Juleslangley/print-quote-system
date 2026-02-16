@@ -111,6 +111,22 @@ export default function AdminDocumentsPage() {
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
   }
 
+  function preview(docType: string) {
+    setErr("");
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const url = `${window.location.origin}/api/document-templates/${docType}/view`;
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.blob();
+      })
+      .then((blob) => {
+        const u = URL.createObjectURL(blob);
+        window.open(u, "_blank", "noopener,noreferrer");
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+  }
+
   return (
     <div>
       <p>
@@ -180,6 +196,9 @@ export default function AdminDocumentsPage() {
                         />
                         <button type="button" className="primary" onClick={() => upload(key)} disabled={!picked}>
                           {hasFile ? "Replace" : "Upload"}
+                        </button>
+                        <button type="button" onClick={() => preview(key)} disabled={!hasFile}>
+                          Preview
                         </button>
                         <button type="button" onClick={() => download(key)} disabled={!hasFile}>
                           Download
