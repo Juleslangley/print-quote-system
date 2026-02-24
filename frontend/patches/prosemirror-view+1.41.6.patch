@@ -1,0 +1,51 @@
+diff --git a/node_modules/prosemirror-view/dist/index.cjs b/node_modules/prosemirror-view/dist/index.cjs
+index cbd6ec9..9e1dd8f 100644
+--- a/node_modules/prosemirror-view/dist/index.cjs
++++ b/node_modules/prosemirror-view/dist/index.cjs
+@@ -1469,8 +1469,8 @@ var NodeViewDesc = function (_ViewDesc4) {
+         contentDOM = _spec.contentDOM;
+       }
+       if (!contentDOM && !node.isText && dom.nodeName != "BR") {
+-        if (!dom.hasAttribute("contenteditable")) dom.contentEditable = "false";
+-        if (node.type.spec.draggable) dom.draggable = true;
++        if (dom.nodeType === 1 && typeof dom.hasAttribute === "function" && !dom.hasAttribute("contenteditable")) dom.contentEditable = "false";
++        if (node.type.spec.draggable && dom.nodeType === 1) dom.draggable = true;
+       }
+       var nodeDOM = dom;
+       dom = applyOuterDeco(dom, outerDeco, node);
+diff --git a/node_modules/prosemirror-view/dist/index.js b/node_modules/prosemirror-view/dist/index.js
+index 766b798..9e60067 100644
+--- a/node_modules/prosemirror-view/dist/index.js
++++ b/node_modules/prosemirror-view/dist/index.js
+@@ -1311,9 +1311,9 @@ class NodeViewDesc extends ViewDesc {
+             ({ dom, contentDOM } = spec);
+         }
+         if (!contentDOM && !node.isText && dom.nodeName != "BR") { // Chrome gets confused by <br contenteditable=false>
+-            if (!dom.hasAttribute("contenteditable"))
++            if (dom.nodeType === 1 && typeof dom.hasAttribute === "function" && !dom.hasAttribute("contenteditable"))
+                 dom.contentEditable = "false";
+-            if (node.type.spec.draggable)
++            if (node.type.spec.draggable && dom.nodeType === 1)
+                 dom.draggable = true;
+         }
+         let nodeDOM = dom;
+diff --git a/node_modules/prosemirror-view/src/viewdesc.ts b/node_modules/prosemirror-view/src/viewdesc.ts
+index c974698..310484d 100644
+--- a/node_modules/prosemirror-view/src/viewdesc.ts
++++ b/node_modules/prosemirror-view/src/viewdesc.ts
+@@ -706,8 +706,13 @@ export class NodeViewDesc extends ViewDesc {
+       ;({dom, contentDOM} = spec as {dom: DOMNode, contentDOM?: HTMLElement})
+     }
+     if (!contentDOM && !node.isText && dom.nodeName != "BR") { // Chrome gets confused by <br contenteditable=false>
+-      if (!(dom as HTMLElement).hasAttribute("contenteditable")) (dom as HTMLElement).contentEditable = "false"
+-      if (node.type.spec.draggable) (dom as HTMLElement).draggable = true
++      const domEl = dom as HTMLElement
++      if (dom.nodeType === 1 && typeof domEl.hasAttribute === "function" && !domEl.hasAttribute("contenteditable")) {
++        domEl.contentEditable = "false"
++      }
++      if (node.type.spec.draggable && dom.nodeType === 1) {
++        domEl.draggable = true
++      }
+     }
+ 
+     let nodeDOM = dom

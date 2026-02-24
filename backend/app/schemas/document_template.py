@@ -9,13 +9,27 @@ class DocumentTemplateCreate(BaseModel):
     name: str = ""
     engine: str = "html_jinja"
     content: str = ""
+    template_html: Optional[str] = None
+    template_json: Optional[str] = None
+    template_css: Optional[str] = None
     is_active: bool = True
 
 
 class DocumentTemplateUpdate(BaseModel):
     name: Optional[str] = None
     content: Optional[str] = None
+    template_html: Optional[str] = None
+    template_json: Optional[str] = None
+    template_css: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+class DocumentTemplatePreview(BaseModel):
+    template_html: Optional[str] = None
+    template_css: Optional[str] = None
+    content: Optional[str] = None
+    doc_type: str = "purchase_order"
+    entity_id: Optional[str] = None
 
 
 class DocumentTemplateOut(BaseModel):
@@ -24,6 +38,9 @@ class DocumentTemplateOut(BaseModel):
     name: str
     engine: str
     content: str
+    template_html: Optional[str] = None
+    template_json: Optional[str] = None
+    template_css: Optional[str] = None
     is_active: bool
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

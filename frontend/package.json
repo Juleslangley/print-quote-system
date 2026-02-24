@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "postinstall": "patch-package",
     "dev": "next dev -p 3000",
     "dev:backend": "cd ../backend && source .venv/bin/activate && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
     "dev:frontend": "next dev -p 3000",
@@ -11,15 +12,22 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "@tiptap/core": "^3.20.0",
+    "@tiptap/extension-placeholder": "^3.20.0",
+    "@tiptap/html": "^3.20.0",
+    "@tiptap/pm": "^3.20.0",
+    "@tiptap/react": "^3.20.0",
+    "@tiptap/starter-kit": "^3.20.0",
     "next": "14.2.6",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "patch-package": "^8.0.0",
+    "@playwright/test": "^1.49.0",
     "@types/node": "^25.2.2",
     "@types/react": "^19.2.13",
     "concurrently": "^9.1.0",
-    "typescript": "^5.9.3",
-    "@playwright/test": "^1.49.0"
+    "typescript": "^5.9.3"
   }
 }

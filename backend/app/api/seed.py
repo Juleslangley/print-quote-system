@@ -15,6 +15,7 @@ from app.models.template_links import TemplateOperation
 from app.models.margin_profile import MarginProfile
 from app.models.supplier import Supplier
 from app.models.document_template import DocumentTemplate
+from app.models.document_render import DocumentRender
 from app.seed.machines import seed_machines
 
 router = APIRouter()
@@ -48,6 +49,28 @@ def upsert_material(db: Session, name: str, **kwargs) -> Material:
 def _is_dev() -> bool:
     e = (settings.ENV or "").lower()
     return e not in ("prod", "production")
+
+
+@router.post("/seed/cleanup-smoke-templates")
+def cleanup_smoke_templates(db: Session = Depends(get_db)):
+    """Dev-only: delete smoke test PO templates (Smoke PO, PO PDF Test) from DB."""
+    if not _is_dev():
+        raise HTTPException(status_code=404, detail="Not found")
+    smoke_tpls = db.query(DocumentTemplate).filter(
+        DocumentTemplate.doc_type == "purchase_order",
+        DocumentTemplate.name.in_(["Smoke PO", "PO PDF Test"]),
+    ).all()
+    smoke_tpl_ids = [t.id for t in smoke_tpls]
+    if not smoke_tpl_ids:
+        return {"ok": True, "deleted_renders": 0, "deleted_templates": 0}
+    renders_deleted = db.query(DocumentRender).filter(
+        DocumentRender.template_id.in_(smoke_tpl_ids),
+    ).delete(synchronize_session=False)
+    templates_deleted = db.query(DocumentTemplate).filter(
+        DocumentTemplate.id.in_(smoke_tpl_ids),
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True, "deleted_renders": renders_deleted, "deleted_templates": templates_deleted}
 
 
 @router.post("/seed/reset-admin")
@@ -243,6 +266,16 @@ def seed_dev(db: Session = Depends(get_db)):
         ])
 
     # document templates (HTML, Jinja2)
+    # Remove smoke test templates (Smoke PO, PO PDF Test) left behind by tests
+    smoke_tpl_ids = [t.id for t in db.query(DocumentTemplate).filter(
+        DocumentTemplate.doc_type == "purchase_order",
+        DocumentTemplate.name.in_(["Smoke PO", "PO PDF Test"]),
+    ).all()]
+    if smoke_tpl_ids:
+        db.query(DocumentRender).filter(DocumentRender.template_id.in_(smoke_tpl_ids)).delete(synchronize_session=False)
+        db.query(DocumentTemplate).filter(DocumentTemplate.id.in_(smoke_tpl_ids)).delete(synchronize_session=False)
+    db.flush()
+
     has_po_doc_tpl = (
         db.query(DocumentTemplate)
         .filter(DocumentTemplate.doc_type == "purchase_order")
@@ -250,111 +283,120 @@ def seed_dev(db: Session = Depends(get_db)):
         > 0
     )
     if not has_po_doc_tpl:
-        po_html = """<!doctype html>
+        po_css = """@page { size: A4; margin: 14mm; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #111; }
+.po-header { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; }
+.po-title { font-size:20px; font-weight:800; }
+.po-meta { text-align:right; }
+.po-addresses { display:flex; gap:18px; margin:10px 0 14px; }
+.po-address { width:50%; }
+.label { font-weight:800; margin-bottom:4px; }
+.po-notes { margin:8px 0 14px; padding:8px 10px; border:1px solid #ddd; border-radius:4px; }
+.po-lines { width:100%; border-collapse:collapse; margin-top:8px; }
+.po-lines th { text-align:left; padding:7px 8px; border-bottom:2px solid #111; font-weight:800; }
+.po-lines td { padding:7px 8px; border-bottom:1px solid #ddd; vertical-align:top; }
+.right { text-align:right; white-space:nowrap; }
+.center { text-align:center; }
+.po-totals-wrap { width:40%; margin-left:auto; margin-top:12px; }
+.po-totals { width:100%; border-collapse:collapse; }
+.po-totals td { padding:6px 8px; border-bottom:1px solid #ddd; }
+.po-totals .grand td { font-weight:900; border-bottom:2px solid #111; }
+.po-footer { margin-top:18px; font-size:11px; color:#666; }"""
+        po_body = """
+<div class="po-page">
+
+<div class="po-header">
+<div class="po-company">
+<div class="po-title">Purchase Order</div>
+<div class="po-company-name">Chartwell Press</div>
+</div>
+
+<div class="po-meta">
+<div><strong>PO No:</strong> {{ po.po_number or 'Draft' }}</div>
+<div><strong>Order date:</strong> {{ po.order_date.strftime('%d/%m/%Y') if po.order_date else '' }}</div>
+{% if po.required_by %}<div><strong>Required by:</strong> {{ po.required_by.strftime('%d/%m/%Y') }}</div>{% endif %}
+{% if po.expected_by %}<div><strong>Expected by:</strong> {{ po.expected_by.strftime('%d/%m/%Y') }}</div>{% endif %}
+</div>
+</div>
+
+<div class="po-addresses">
+<div class="po-address">
+<div class="label">Supplier</div>
+<div>{{ supplier.name if supplier else '' }}</div>
+{% if supplier and supplier.address %}<div>{{ supplier.address }}</div>{% endif %}
+{% if supplier and supplier.city %}<div>{{ supplier.city }}</div>{% endif %}
+{% if supplier and supplier.postcode %}<div>{{ supplier.postcode }}</div>{% endif %}
+{% if supplier and supplier.country %}<div>{{ supplier.country }}</div>{% endif %}
+{% if supplier and supplier.email %}<div>{{ supplier.email }}</div>{% endif %}
+{% if supplier and supplier.phone %}<div>{{ supplier.phone }}</div>{% endif %}
+</div>
+
+<div class="po-address">
+<div class="label">Delivery</div>
+{% if po.delivery_name %}<div>{{ po.delivery_name }}</div>{% endif %}
+{% if po.delivery_address %}<div>{{ po.delivery_address }}</div>{% endif %}
+</div>
+</div>
+
+{% if po.notes %}<div class="po-notes"><strong>Notes</strong><div>{{ po.notes }}</div></div>{% endif %}
+
+<table class="po-lines">
+<thead>
+<tr>
+<th>Description</th>
+<th>Supplier code</th>
+<th class="right">Qty</th>
+<th>UOM</th>
+<th class="right">Unit cost</th>
+<th class="right">Line total</th>
+</tr>
+</thead>
+<tbody>
+{% if lines and (lines|length) > 0 %}
+{% for line in lines %}
+<tr>
+<td>{{ line.description or '—' }}</td>
+<td>{{ line.supplier_product_code or '—' }}</td>
+<td class="right">{{ '%.2f'|format(line.qty or 0) }}</td>
+<td>{{ line.uom or '—' }}</td>
+<td class="right">£{{ '%.2f'|format(line.unit_cost_gbp or 0) }}</td>
+<td class="right">£{{ '%.2f'|format(line.line_total_gbp or 0) }}</td>
+</tr>
+{% endfor %}
+{% else %}
+<tr><td colspan="6" class="center">No lines</td></tr>
+{% endif %}
+</tbody>
+</table>
+
+<div class="po-totals-wrap">
+<table class="po-totals">
+<tbody>
+<tr><td>Subtotal</td><td class="right">£{{ '%.2f'|format(po.subtotal_gbp or 0) }}</td></tr>
+<tr><td>VAT</td><td class="right">£{{ '%.2f'|format(po.vat_gbp or 0) }}</td></tr>
+<tr class="grand"><td>Total</td><td class="right">£{{ '%.2f'|format(po.total_gbp or 0) }}</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="po-footer">
+Generated by Chartwell Press · Please quote PO number on all correspondence.
+</div>
+
+</div>"""
+        po_html = f"""<!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <style>
-      @page { size: A4; margin: 18mm; }
-      body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; color: #111; }
-      .row { display: flex; justify-content: space-between; gap: 18px; }
-      .muted { color: #666; }
-      .title { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
-      .box { border: 1px solid #ddd; padding: 10px 12px; border-radius: 8px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-      th, td { border-bottom: 1px solid #eee; padding: 8px 6px; vertical-align: top; }
-      th { text-align: left; background: #f5f5f7; font-weight: 700; }
-      .right { text-align: right; }
-      .totals { margin-top: 12px; width: 280px; margin-left: auto; }
-      .totals td { border: none; padding: 4px 0; }
-      .footer { margin-top: 18px; font-size: 11px; color: #666; }
-    </style>
-  </head>
-  <body>
-    <div class="row" style="align-items:flex-start;">
-      <div>
-        <div class="title">Chartwell Press</div>
-        <div class="muted">Purchase Order</div>
-      </div>
-      <div class="box" style="min-width: 260px;">
-        <div><strong>PO No:</strong> {{ po.po_number if po.po_number and not po.po_number.startswith('DRAFT-') else 'Draft' }}</div>
-        <div><strong>Order date:</strong> {{ po.order_date.strftime('%d/%m/%Y') if po.order_date else '' }}</div>
-        {% if po.required_by %}<div><strong>Required by:</strong> {{ po.required_by.strftime('%d/%m/%Y') }}</div>{% endif %}
-        {% if po.expected_by %}<div><strong>Expected by:</strong> {{ po.expected_by.strftime('%d/%m/%Y') }}</div>{% endif %}
-      </div>
-    </div>
-
-    <div class="row" style="margin-top: 14px;">
-      <div class="box" style="flex:1;">
-        <div style="font-weight:700; margin-bottom: 6px;">Supplier</div>
-        <div>{{ supplier.name if supplier else po.supplier_id }}</div>
-        {% if supplier and supplier.address %}<div class="muted">{{ supplier.address }}</div>{% endif %}
-        {% if supplier and supplier.city %}<div class="muted">{{ supplier.city }}</div>{% endif %}
-        {% if supplier and supplier.postcode %}<div class="muted">{{ supplier.postcode }}</div>{% endif %}
-        {% if supplier and supplier.country %}<div class="muted">{{ supplier.country }}</div>{% endif %}
-        {% if supplier and supplier.email %}<div class="muted">{{ supplier.email }}</div>{% endif %}
-        {% if supplier and supplier.phone %}<div class="muted">{{ supplier.phone }}</div>{% endif %}
-      </div>
-      <div class="box" style="flex:1;">
-        <div style="font-weight:700; margin-bottom: 6px;">Delivery</div>
-        {% if po.delivery_name %}<div>{{ po.delivery_name }}</div>{% endif %}
-        {% if po.delivery_address %}<div class="muted">{{ po.delivery_address }}</div>{% endif %}
-      </div>
-    </div>
-
-    {% if po.notes %}
-      <div class="box" style="margin-top: 14px;">
-        <div style="font-weight:700; margin-bottom: 6px;">Notes</div>
-        <div>{{ po.notes }}</div>
-      </div>
-    {% endif %}
-
-    <table>
-      <thead>
-        <tr>
-          <th>Description</th>
-          <th>Supplier code</th>
-          <th class="right">Qty</th>
-          <th>UOM</th>
-          <th class="right">Unit cost</th>
-          <th class="right">Line total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for line in lines %}
-          <tr>
-            <td>{{ line.description or '—' }}</td>
-            <td>{{ line.supplier_product_code or '—' }}</td>
-            <td class="right">{{ '%.2f'|format(line.qty or 0) }}</td>
-            <td>{{ line.uom or '—' }}</td>
-            <td class="right">£{{ '%.2f'|format(line.unit_cost_gbp or 0) }}</td>
-            <td class="right">£{{ '%.2f'|format(line.line_total_gbp or 0) }}</td>
-          </tr>
-        {% endfor %}
-        {% if not lines or (lines|length) == 0 %}
-          <tr><td colspan="6" class="muted">No lines</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-
-    <table class="totals">
-      <tr><td class="muted">Subtotal</td><td class="right">£{{ '%.2f'|format(po.subtotal_gbp or 0) }}</td></tr>
-      <tr><td class="muted">VAT</td><td class="right">£{{ '%.2f'|format(po.vat_gbp or 0) }}</td></tr>
-      <tr><td style="font-weight:700;">Total</td><td class="right" style="font-weight:700;">£{{ '%.2f'|format(po.total_gbp or 0) }}</td></tr>
-    </table>
-
-    <div class="footer">
-      Generated by Chartwell Press · Please quote PO number on all correspondence.
-    </div>
-  </body>
-</html>
-"""
+  <head><meta charset="utf-8"><style>{po_css}</style></head>
+  <body>{po_body}</body>
+</html>"""
         db.add(DocumentTemplate(
             id=new_id(),
             doc_type="purchase_order",
             name="Default Purchase Order",
             engine="html_jinja",
             content=po_html,
+            template_html=po_body.strip(),
+            template_css=po_css,
             is_active=True,
         ))
 

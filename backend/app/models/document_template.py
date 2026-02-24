@@ -13,6 +13,9 @@ class DocumentTemplate(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String, default="")
     engine: Mapped[str] = mapped_column(String, default="html_jinja")
     content: Mapped[str] = mapped_column(Text, default="")
+    template_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    template_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    template_css: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     __table_args__ = (

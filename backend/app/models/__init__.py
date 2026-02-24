@@ -25,4 +25,5 @@ from .packing_store_line_item import PackingStoreLineItem
 
 # Document system (v1 templates + renders)
 from .document_template import DocumentTemplate
+from .document_template_version import DocumentTemplateVersion
 from .document_render import DocumentRender

@@ -112,7 +112,7 @@ export default function PurchaseOrderList({
   }
 
   function isDraft(po: PO) {
-    return !po.po_number || String(po.po_number).startsWith("DRAFT-");
+    return po.status === "draft";
   }
 
   async function deleteDraftPO(po: PO, e: React.MouseEvent) {
@@ -130,7 +130,7 @@ export default function PurchaseOrderList({
 
   async function cancelPO(po: PO, e: React.MouseEvent) {
     e.stopPropagation();
-    const label = po.po_number && !String(po.po_number).startsWith("DRAFT-") ? po.po_number : "Draft";
+    const label = po.po_number || "Draft";
     if (!confirm(`Cancel purchase order ${label}?`)) return;
     setErr("");
     try {

@@ -1,6 +1,5 @@
 import logging
 from typing import Optional
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -9,15 +8,12 @@ from app.core.db import get_db
 
 logger = logging.getLogger(__name__)
 from app.api.permissions import require_admin, require_sales
-from app.core.config import settings
 from app.models.user import User
 from app.models.supplier import Supplier
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_line import PurchaseOrderLine
 from app.models.material import Material
 from app.models.material_size import MaterialSize
-from app.models.document_render import DocumentRender
-from app.models.file import File as FileRow
 from app.models.base import new_id
 from app.schemas.purchase_order import (
     PurchaseOrderCreate,
@@ -28,7 +24,7 @@ from app.schemas.purchase_order import (
     CreatedByUser,
 )
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
-from app.services.pdfs.purchase_order_pdf import build_po_pdf
+from app.services.document_renderer import generate_po_pdf_bytes
 from app.services.purchase_order_workflow import transition_po_status
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy import text
@@ -36,9 +32,6 @@ from sqlalchemy import text
 router = APIRouter()
 
 VAT_RATE = 0.20
-
-_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
-UPLOADS_DIR = _BACKEND_ROOT / settings.UPLOADS_DIR
 
 
 def _recalc_po_totals(db: Session, po_id: int) -> None:
@@ -187,6 +180,37 @@ def create_purchase_order(
     db.commit()
     db.refresh(po)
     return po
+
+
+@router.get("/purchase-orders/{po_id}/pdf")
+def get_po_pdf(
+    po_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_sales),
+):
+    """Return PO as PDF using the active purchase_order document template."""
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    try:
+        pdf_bytes = generate_po_pdf_bytes(db, po_id)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        if "no active" in msg.lower() or "template" in msg.lower():
+            raise HTTPException(status_code=400, detail=msg)
+        raise HTTPException(status_code=500, detail=msg)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    po_label = po.po_number or f"PO{po.id:07d}"
+    safe_num = "".join(c for c in str(po_label) if c.isalnum() or c in "_-")
+    filename = f"PO_{safe_num}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/purchase-orders/{po_id}", response_model=PurchaseOrderDetailOut)
@@ -424,39 +448,3 @@ def receive_po(
     db.commit()
     db.refresh(po)
     return po
-
-
-@router.get("/purchase-orders/{po_id}.pdf")
-def get_po_pdf(
-    po_id: int,
-    db: Session = Depends(get_db),
-    _=Depends(require_sales),
-):
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
-    if not po:
-        raise HTTPException(status_code=404, detail="Purchase order not found")
-
-    # Prefer the latest auto-rendered PO PDF (HTML template) when available.
-    latest_render = (
-        db.query(DocumentRender)
-        .filter(DocumentRender.doc_type == "purchase_order", DocumentRender.entity_id == po_id)
-        .order_by(DocumentRender.created_at.desc().nullslast())
-        .first()
-    )
-    if latest_render:
-        f = db.query(FileRow).filter(FileRow.id == latest_render.file_id).first()
-        if f:
-            path = UPLOADS_DIR / f.storage_key
-            if path.exists():
-                po_label = po.po_number or f"PO{po.id:07d}"
-                filename = f"{po_label}.pdf"
-                return Response(
-                    content=path.read_bytes(),
-                    media_type=f.mime or "application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename={filename}"},
-                )
-
-    pdf_bytes = build_po_pdf(db, po)
-    po_label = po.po_number or f"PO{po.id:07d}"
-    filename = f"{po_label}.pdf"
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})

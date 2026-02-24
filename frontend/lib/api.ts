@@ -142,6 +142,24 @@ async function request<T = unknown>(path: string, opts: RequestInit = {}): Promi
   }
 }
 
+/**
+ * Fetch with auth (same as api). Use for blob/binary responses (e.g. PDF download).
+ * Returns raw Response; caller must check res.ok and handle 401.
+ */
+export async function apiFetch(path: string, opts: RequestInit = {}): Promise<Response> {
+  const token = getToken();
+  const url = resolveUrl(path);
+  const headers: Record<string, string> = {
+    ...((opts.headers as Record<string, string>) ?? {}),
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return fetch(url, {
+    ...opts,
+    credentials: opts.credentials ?? "include",
+    headers: { ...opts.headers, ...headers },
+  });
+}
+
 export const api = Object.assign(
   <T = unknown>(path: string, init?: RequestInit): Promise<T> => request<T>(path, init),
   {

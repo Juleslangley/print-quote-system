@@ -1,6 +1,7 @@
 import pathlib
 
 import pytest
+from fastapi.testclient import TestClient
 
 import app.models  # noqa: F401 - register models for Base.metadata
 from app.models.base import new_id
@@ -102,4 +103,63 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path, db_session, 
                 db.commit()
             except Exception:
                 db.rollback()
+
+
+def test_get_po_pdf_endpoint_returns_200_and_pdf(db_session, supplier_id, app_with_auth_bypass):
+    """
+    Smoke test: GET /api/purchase-orders/{id}/pdf returns 200, application/pdf, body > 1000 bytes.
+    Mocks generate_po_pdf_bytes to avoid WeasyPrint blocking in CI/Docker.
+    """
+    from unittest.mock import patch
+
+    fake_pdf = b"%PDF-1.4 fake\n" + b"x" * 2000  # > 1000 bytes
+
+    db = db_session
+    po = PurchaseOrder(supplier_id=supplier_id, status="draft")
+    db.add(po)
+    db.flush()
+    line = PurchaseOrderLine(
+        id=new_id(),
+        po_id=po.id,
+        sort_order=0,
+        description="Test line",
+        supplier_product_code="SKU-1",
+        qty=1,
+        uom="sheet",
+        unit_cost_gbp=10.0,
+        line_total_gbp=10.0,
+        active=True,
+    )
+    db.query(DocumentTemplate).filter(
+        DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True)
+    ).update({"is_active": False}, synchronize_session=False)
+    tpl = DocumentTemplate(
+        id=new_id(),
+        doc_type="purchase_order",
+        name="PO PDF Test",
+        engine="html_jinja",
+        template_html="<div class='po-page'><h1>PO {{ po.po_number or po.id }}</h1></div>",
+        template_css=".po-page { font-size: 12px; }",
+        is_active=True,
+    )
+    db.add_all([line, tpl])
+    db.commit()
+    db.refresh(po)
+    po_id = po.id
+
+    try:
+        with patch(
+            "app.api.purchase_orders.generate_po_pdf_bytes",
+            return_value=fake_pdf,
+        ):
+            client = TestClient(app_with_auth_bypass)
+            res = client.get(f"/api/purchase-orders/{po_id}/pdf")
+        assert res.status_code == 200, res.text
+        assert res.headers.get("content-type", "").startswith("application/pdf")
+        assert len(res.content) > 1000, "PDF body should be > 1000 bytes"
+    finally:
+        db.query(PurchaseOrderLine).filter(PurchaseOrderLine.po_id == po_id).delete(synchronize_session=False)
+        db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).delete(synchronize_session=False)
+        db.query(DocumentTemplate).filter(DocumentTemplate.id == tpl.id).delete(synchronize_session=False)
+        db.commit()
 

@@ -13,8 +13,8 @@ from app.models.document_render import DocumentRender
 from app.models.document_template import DocumentTemplate
 from app.models.file import File as FileRow
 from app.models.purchase_order import PurchaseOrder
-from app.models.purchase_order_line import PurchaseOrderLine
-from app.models.supplier import Supplier
+from app.services.document_context import build_context
+from app.services.document_expand import expand_jinja_blocks
 
 
 # Uploads dir relative to backend root (backend = parent of app)
@@ -48,21 +48,19 @@ def _html_to_pdf_bytes(html: str) -> bytes:
     return HTML(string=html).write_pdf()
 
 
-def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> str:
+def html_to_pdf_bytes(html: str) -> bytes:
+    """Convert HTML to PDF bytes. Reusable for preview PDF export."""
+    return _html_to_pdf_bytes(html)
+
+
+def generate_po_pdf_bytes(db: Session, po_id: int) -> bytes:
     """
-    DB-session variant (used internally and by API hooks).
-    Returns the created file_id.
+    Generate PO PDF bytes using the active purchase_order template.
+    Does not persist to storage. Raises ValueError if PO not found or no active template.
     """
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise ValueError("Purchase order not found")
-    supplier = db.query(Supplier).filter(Supplier.id == po.supplier_id).first()
-    lines = (
-        db.query(PurchaseOrderLine)
-        .filter(PurchaseOrderLine.po_id == po_id, PurchaseOrderLine.active.is_(True))
-        .order_by(PurchaseOrderLine.sort_order.asc(), PurchaseOrderLine.id.asc())
-        .all()
-    )
 
     tpl = (
         db.query(DocumentTemplate)
@@ -75,17 +73,54 @@ def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> 
     if (tpl.engine or "html_jinja") != "html_jinja":
         raise ValueError("Unsupported template engine")
 
-    context = {
-        "company": {
-            "name": "Chartwell Press",
-        },
-        "po": po,
-        "supplier": supplier,
-        "lines": lines,
-        "vat_rate": 0.20,
-    }
+    if tpl.template_html is not None or tpl.template_css is not None:
+        body = expand_jinja_blocks(tpl.template_html or "")
+        css = f"<style>\n{tpl.template_css or ''}\n</style>" if tpl.template_css else ""
+        template_content = f"<!doctype html><html><head><meta charset=\"utf-8\">{css}</head><body>{body}</body></html>"
+    else:
+        template_content = expand_jinja_blocks(tpl.content or "")
 
-    html = _render_html(tpl.content, context)
+    context = build_context("purchase_order", str(po_id), db)
+    if not context:
+        raise ValueError("Failed to build PO context")
+
+    html = _render_html(template_content, context)
+    return _html_to_pdf_bytes(html)
+
+
+def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> str:
+    """
+    DB-session variant (used internally and by API hooks).
+    Returns the created file_id.
+    """
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise ValueError("Purchase order not found")
+
+    tpl = (
+        db.query(DocumentTemplate)
+        .filter(DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True))
+        .order_by(DocumentTemplate.updated_at.desc().nullslast(), DocumentTemplate.created_at.desc().nullslast())
+        .first()
+    )
+    if not tpl:
+        raise ValueError("No active purchase_order document template")
+    if (tpl.engine or "html_jinja") != "html_jinja":
+        raise ValueError("Unsupported template engine")
+
+    # Use template_html + template_css when set, else legacy content
+    if tpl.template_html is not None or tpl.template_css is not None:
+        body = expand_jinja_blocks(tpl.template_html or "")
+        css = f"<style>\n{tpl.template_css or ''}\n</style>" if tpl.template_css else ""
+        template_content = f"<!doctype html><html><head><meta charset=\"utf-8\">{css}</head><body>{body}</body></html>"
+    else:
+        template_content = expand_jinja_blocks(tpl.content or "")
+
+    context = build_context("purchase_order", str(po_id), db)
+    if not context:
+        raise ValueError("Failed to build PO context")
+
+    html = _render_html(template_content, context)
     pdf_bytes = _html_to_pdf_bytes(html)
 
     _ensure_uploads_dir()

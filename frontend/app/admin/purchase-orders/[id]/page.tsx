@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, apiFetch, ApiError, clearToken } from "@/lib/api";
 import Modal from "../../../_components/Modal";
 
 type SupplierSummary = {
@@ -151,7 +151,8 @@ export default function PurchaseOrderDetailPage() {
     if (!id || !materialIdFromUrl) return;
     if (materialIdOpenDoneRef.current === materialIdFromUrl) return;
     materialIdOpenDoneRef.current = materialIdFromUrl;
-    setAddLineOpen(true);
+    // Do NOT auto-open Add Line: from-material API already created the line.
+    // Opening would show a pre-filled form that would add a duplicate if saved.
     let cancelled = false;
     api<Material>(`/api/materials/${materialIdFromUrl}`)
       .then((m) => {
@@ -263,7 +264,7 @@ export default function PurchaseOrderDetailPage() {
 
   const supplierName = po ? (po.supplier?.name ?? suppliers.find((s) => s.id === po.supplier_id)?.name ?? po.supplier_id) : "";
   const createdByLabel = po?.created_by ? (po.created_by.full_name?.trim() || po.created_by.email) : null;
-  const isDraftPoNumber = !po?.po_number || String(po.po_number).startsWith("DRAFT-");
+  const isDraftPoNumber = po?.status === "draft";
 
   function openAddLine() {
     setSelectedMaterial(null);
@@ -432,7 +433,7 @@ export default function PurchaseOrderDetailPage() {
   }
 
   async function deleteDraft() {
-    if (!po?.po_number || !String(po.po_number).startsWith("DRAFT-")) return;
+    if (!po || po.status !== "draft") return;
     if (!confirm("Delete this draft permanently? This cannot be undone.")) return;
     setErr("");
     try {
@@ -445,7 +446,7 @@ export default function PurchaseOrderDetailPage() {
 
   const [processingOrder, setProcessingOrder] = useState(false);
   async function processOrder() {
-    if (!po?.po_number || !String(po.po_number).startsWith("DRAFT-")) return;
+    if (!po || po.status !== "draft") return;
     setErr("");
     setProcessingOrder(true);
     try {
@@ -571,18 +572,35 @@ export default function PurchaseOrderDetailPage() {
             type="button"
             onClick={async () => {
               try {
-                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                const res = await fetch(`/api/purchase-orders/${id}.pdf`, {
-                  headers: token ? { Authorization: `Bearer ${token}` } : {},
-                });
-                if (!res.ok) throw new Error("Failed to load PDF");
+                setErr("");
+                const res = await apiFetch(`/api/purchase-orders/${id}/pdf`, { method: "GET" });
+                if (res.status === 401) {
+                  clearToken();
+                  setErr("Session expired, please log in");
+                  return;
+                }
+                if (!res.ok) {
+                  const text = await res.text();
+                  let msg = `Failed to load PDF (${res.status})`;
+                  try {
+                    const j = text ? JSON.parse(text) : null;
+                    if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+                  } catch {
+                    if (text) msg = text.slice(0, 200);
+                  }
+                  throw new Error(msg);
+                }
                 const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
+                const blobUrl = URL.createObjectURL(blob);
                 const a = document.createElement("a");
-                a.href = url;
-                a.download = `${isDraftPoNumber ? "PO-draft" : po.po_number}.pdf`;
+                a.href = blobUrl;
+                const disposition = res.headers.get("Content-Disposition");
+                const match = disposition?.match(/filename="([^"]+)"/);
+                a.download = match?.[1] ?? `${po?.po_number || "PO"}.pdf`;
+                document.body.appendChild(a);
                 a.click();
-                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
               } catch (e: any) {
                 setErr(e?.message || "PDF download failed");
               }
