@@ -72,8 +72,10 @@ except Exception as e:
         logger.warning("Database check at startup: %s", e)
 
 # Optional: add columns to existing tables (dev-safe; skip if tables/columns already exist)
+# Use a short statement timeout to avoid blocking startup if DB is locked (e.g. migration running).
 try:
     with engine.begin() as conn:
+        conn.execute(text("SET LOCAL statement_timeout = '5000'"))  # 5s max per statement
         conn.execute(text("ALTER TABLE materials ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'"))
         conn.execute(text("ALTER TABLE materials ADD COLUMN IF NOT EXISTS supplier_id VARCHAR REFERENCES suppliers(id)"))
         conn.execute(text("ALTER TABLE materials ADD COLUMN IF NOT EXISTS nominal_code VARCHAR DEFAULT ''"))

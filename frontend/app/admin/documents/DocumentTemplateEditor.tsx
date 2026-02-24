@@ -7,36 +7,11 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Node as TiptapNode } from "@tiptap/core";
 import { JINJA_FIELDS } from "./InsertFieldDropdown";
 import { JinjaBlock } from "./tiptap/JinjaBlock";
+import { PoLinesBlock, PO_LINES_TEMPLATE_HTML } from "./tiptap/PoLinesBlock";
+import { PoTotalsBlock } from "./tiptap/PoTotalsBlock";
+import { BarcodeBlockAtom } from "./tiptap/BarcodeBlockAtom";
+import { createPoLinesBlockUniquenessExtension } from "./tiptap/PoLinesBlockUniquenessPlugin";
 
-/** Canonical PO lines table payload — single atomic block, never split by TipTap. */
-const PO_LINES_PAYLOAD = `<table class="po-lines">
-<thead>
-<tr>
-<th>Description</th>
-<th>Supplier code</th>
-<th class="right">Qty</th>
-<th>UOM</th>
-<th class="right">Unit cost</th>
-<th class="right">Line total</th>
-</tr>
-</thead>
-<tbody>
-{% if lines and (lines|length) > 0 %}
-{% for line in lines %}
-<tr>
-<td>{{ line.description or '—' }}</td>
-<td>{{ line.supplier_product_code or '—' }}</td>
-<td class="right">{{ '%.2f'|format(line.qty or 0) }}</td>
-<td>{{ line.uom or '—' }}</td>
-<td class="right">£{{ '%.2f'|format(line.unit_cost_gbp or 0) }}</td>
-<td class="right">£{{ '%.2f'|format(line.line_total_gbp or 0) }}</td>
-</tr>
-{% endfor %}
-{% else %}
-<tr><td colspan="6" class="center">No lines</td></tr>
-{% endif %}
-</tbody>
-</table>`;
 
 const PO_TOTALS_JINJA = `<div class="po-totals-wrap"><table class="po-totals" role="table" aria-label="Totals"><tbody><tr><td>Subtotal</td><td class="right">£{{ '%.2f'|format(po.subtotal_gbp or 0) }}</td></tr><tr><td>VAT</td><td class="right">£{{ '%.2f'|format(po.vat_gbp or 0) }}</td></tr><tr class="grand"><td>Total</td><td class="right">£{{ '%.2f'|format(po.total_gbp or 0) }}</td></tr></tbody></table></div>`;
 
@@ -157,6 +132,26 @@ function stripStrayTrue(html: string): string {
     .replace(/>\s*true\s*</g, "><");
 }
 
+/**
+ * For purchase_order: ensure exactly one po_lines block before save.
+ * If missing, inserts it and returns the expanded HTML. Call before save.
+ */
+export function prepareHtmlForSave(editor: Editor | null, docType: string): string {
+  if (!editor) return "";
+  let raw = editor.getHTML();
+  if (docType === "purchase_order") {
+    const hasPlaceholder =
+      raw.includes('data-jinja-block="po_lines"') ||
+      raw.includes("po-lines-block") ||
+      raw.includes('data-template-block="po-lines"');
+    if (!hasPlaceholder) {
+      editor.chain().focus().insertContent({ type: "poLinesBlock" }).run();
+      raw = editor.getHTML();
+    }
+  }
+  return expandJinjaBlocks(raw);
+}
+
 export function expandJinjaBlocks(html: string): string {
   if (typeof document === "undefined") return html;
   html = rewriteJinjaOutputTrue(html);
@@ -182,16 +177,31 @@ export function useDocumentTemplateEditor(
   docType: string,
   onUpdate?: (html: string, json: string) => void
 ) {
+  const baseExtensions = [
+    StarterKit,
+    Placeholder.configure({ placeholder: "Start typing or use Insert Field / blocks…" }),
+    JinjaBlock,
+    StorePackingTable,
+    TotalsBlock,
+    BarcodeBlock,
+  ];
+  const isPo = docType === "purchase_order";
+  const isProductionOrder = docType === "production_order";
+  const extensions = isPo
+    ? [
+        ...baseExtensions,
+        PoLinesBlock,
+        PoTotalsBlock,
+        BarcodeBlockAtom,
+        createPoLinesBlockUniquenessExtension(docType),
+      ]
+    : isProductionOrder
+      ? [...baseExtensions, BarcodeBlockAtom]
+      : baseExtensions;
+
   return useEditor({
     immediatelyRender: false,
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: "Start typing or use Insert Field / blocks…" }),
-      JinjaBlock,
-      StorePackingTable,
-      TotalsBlock,
-      BarcodeBlock,
-    ],
+    extensions,
     content: (() => {
       if (initialJson) {
         try {
@@ -244,33 +254,53 @@ export function DocumentTemplateEditor({
     [editor]
   );
 
-  const hasPoLinesBlock = useCallback(() => {
-    if (!editor) return false;
-    let found = false;
-    editor.state.doc.descendants((node) => {
-      if (node.type.name === "jinjaBlock" && (node.attrs.block === "po_lines" || (node.attrs.payload && String(node.attrs.payload).includes("po-lines")))) {
-        found = true;
-      }
-    });
-    return found;
-  }, [editor]);
+  const findBlockPos = useCallback(
+    (typeName: string): number | null => {
+      if (!editor) return null;
+      let pos: number | null = null;
+      editor.state.doc.descendants((node, p) => {
+        if (node.type.name === typeName && pos === null) {
+          pos = p;
+        }
+      });
+      return pos;
+    },
+    [editor]
+  );
+
+  /** Escape for HTML attribute value (backend will unescape). */
+  const escapeAttr = useCallback((s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"), []);
 
   const onInsertBlock = useCallback(
     (blockType: string) => {
       if (!editor) return;
       const totalsJinja = docType === "purchase_order" ? PO_TOTALS_JINJA : TOTALS_JINJA;
       if (blockType === "lineItemsTable") {
-        if (docType === "purchase_order" && hasPoLinesBlock()) {
-          return; // Prevent duplicate PO lines blocks
+        if (docType === "purchase_order") {
+          const existingPos = findBlockPos("poLinesBlock");
+          if (existingPos !== null) {
+            editor.chain().focus().setTextSelection(existingPos).scrollIntoView().run();
+            return;
+          }
+          editor.chain().focus().insertContent({ type: "poLinesBlock" }).run();
+          return;
         }
-        const insertPayload =
-          docType === "purchase_order"
-            ? { type: "jinjaBlock" as const, attrs: { label: "PO Line Items Table", block: "po_lines" } }
-            : { type: "jinjaBlock" as const, attrs: { label: "PO Line Items Table", payload: PO_LINES_PAYLOAD } };
-        editor.chain().focus().insertContent(insertPayload).run();
+        // Non-PO: insert as single HTML block so TipTap cannot split {% if %} across nodes
+        const wrapper = `<div data-type="jinjaBlock" data-label="PO Line Items Table" data-jinja-output="${escapeAttr(PO_LINES_TEMPLATE_HTML)}"></div>`;
+        editor.chain().focus().insertContent(wrapper, { parseOptions: { preserveWhitespace: "full" } }).run();
       } else if (blockType === "storePackingTable") {
         editor.chain().focus().insertContent({ type: "storePackingTable" }).run();
       } else if (blockType === "totalsBlock") {
+        if (docType === "purchase_order") {
+          const existingPos = findBlockPos("poTotalsBlock");
+          if (existingPos !== null) {
+            editor.chain().focus().setTextSelection(existingPos).scrollIntoView().run();
+            return;
+          }
+          editor.chain().focus().insertContent({ type: "poTotalsBlock" }).run();
+          return;
+        }
         editor
           .chain()
           .focus()
@@ -280,10 +310,14 @@ export function DocumentTemplateEditor({
           })
           .run();
       } else if (blockType === "barcodeBlock") {
+        if (docType === "purchase_order" || docType === "production_order") {
+          editor.chain().focus().insertContent({ type: "barcodeBlockAtom" }).run();
+          return;
+        }
         editor.chain().focus().insertContent({ type: "barcodeBlock" }).run();
       }
     },
-    [editor, docType, hasPoLinesBlock]
+    [editor, docType, findBlockPos, escapeAttr]
   );
 
   if (!editor) return null;

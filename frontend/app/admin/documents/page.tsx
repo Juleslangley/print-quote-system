@@ -7,6 +7,7 @@ import {
   DocumentTemplateEditor,
   useDocumentTemplateEditor,
   expandJinjaBlocks,
+  prepareHtmlForSave,
 } from "./DocumentTemplateEditor";
 
 type DocumentTemplate = {
@@ -18,9 +19,17 @@ type DocumentTemplate = {
   template_html?: string | null;
   template_json?: string | null;
   template_css?: string | null;
+  current_version_id?: string | null;
   is_active: boolean;
   created_at?: string | null;
   updated_at?: string | null;
+};
+
+type DocumentTemplateVersion = {
+  id: string;
+  template_id: string;
+  version_num: number;
+  created_at?: string | null;
 };
 
 const DOC_TYPES: { key: string; label: string }[] = [
@@ -52,7 +61,16 @@ export default function AdminDocumentsPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [downloadPdfLoading, setDownloadPdfLoading] = useState(false);
   const [previewPoId, setPreviewPoId] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{
+    expanded_html: string;
+    repair_log: string[];
+    final_html: string;
+    template_version_id: string | null;
+  } | null>(null);
   const [purchaseOrders, setPurchaseOrders] = useState<{ id: number; po_number: string | null }[]>([]);
+  const [versions, setVersions] = useState<DocumentTemplateVersion[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<string>("");
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -63,6 +81,8 @@ export default function AdminDocumentsPage() {
       setTemplateJson(null);
       setTemplateCss("");
       setIsActive(true);
+      setVersions([]);
+      setSelectedVersionId("");
       return;
     }
     setName(selected.name || "");
@@ -71,6 +91,10 @@ export default function AdminDocumentsPage() {
     setTemplateJson(selected.template_json ?? null);
     setTemplateCss(selected.template_css || "");
     setIsActive(!!selected.is_active);
+    setSelectedVersionId(selected.current_version_id || "");
+    api<DocumentTemplateVersion[]>(`/api/document-templates/${selected.id}/versions`)
+      .then((v) => setVersions(v ?? []))
+      .catch(() => setVersions([]));
   }, [selectedId, selected]);
 
   const editor = useDocumentTemplateEditor(
@@ -160,7 +184,7 @@ export default function AdminDocumentsPage() {
     if (!selected) return;
     setErr("");
     try {
-      const html = editor ? expandJinjaBlocks(editor.getHTML()) : templateHtml;
+      const html = editor ? prepareHtmlForSave(editor, docType) : templateHtml;
       const json = editor ? JSON.stringify(editor.getJSON()) : templateJson;
       await api<DocumentTemplate>(`/api/document-templates/${selected.id}`, {
         method: "PUT",
@@ -214,21 +238,51 @@ export default function AdminDocumentsPage() {
     if (docType === "purchase_order" && previewPoId) {
       body.entity_id = previewPoId;
     }
+    if (selectedVersionId) {
+      body.template_version_id = selectedVersionId;
+    }
     return body;
   }
 
   async function previewTemplate() {
     setPreviewLoading(true);
     setErr("");
+    setDebugInfo(null);
     try {
-      const res = await api<string>("/api/document-templates/preview", {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const url = `/api/document-templates/preview?format=html${showAdvanced ? "&include_debug=true" : ""}`;
+      const res = await fetch(url, {
         method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(getPreviewBody()),
       });
-      setPreviewHtml(res);
+      if (!res.ok) {
+        const text = await res.text();
+        let msg = `Preview failed (${res.status})`;
+        try {
+          const j = text ? JSON.parse(text) : null;
+          if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+        } catch {
+          if (text) msg = text.slice(0, 300);
+        }
+        throw new Error(msg);
+      }
+      const text = await res.text();
+      if (showAdvanced) {
+        const data = JSON.parse(text);
+        setPreviewHtml(data.html ?? "");
+        setDebugInfo(data.debug ?? null);
+      } else {
+        setPreviewHtml(text);
+      }
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
       setPreviewHtml(null);
+      setDebugInfo(null);
     } finally {
       setPreviewLoading(false);
     }
@@ -397,6 +451,23 @@ export default function AdminDocumentsPage() {
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {selected && versions.length > 0 && (
+                  <label className="subtle" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    Version:
+                    <select
+                      value={selectedVersionId}
+                      onChange={(e) => setSelectedVersionId(e.target.value)}
+                      style={{ minWidth: 160 }}
+                    >
+                      <option value="">Latest (editing)</option>
+                      {versions.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          v{v.version_num} {v.created_at ? new Date(v.created_at).toLocaleString().slice(0, 16) : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {docType === "purchase_order" && (
                   <>
                     <label className="subtle" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -416,6 +487,14 @@ export default function AdminDocumentsPage() {
                     </label>
                   </>
                 )}
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={showAdvanced}
+                    onChange={(e) => setShowAdvanced(e.target.checked)}
+                  />
+                  <span className="subtle">Advanced</span>
+                </label>
                 <button
                   type="button"
                   onClick={previewTemplate}
@@ -469,9 +548,39 @@ export default function AdminDocumentsPage() {
               background: "#fff",
             }}
           />
+          {debugInfo && (
+            <details className="debug-drawer" style={{ marginTop: 16, border: "1px solid #ddd", borderRadius: 8 }}>
+              <summary style={{ padding: 12, cursor: "pointer", fontWeight: 600 }}>Debug</summary>
+              <div style={{ padding: 12, borderTop: "1px solid #ddd", fontSize: 12 }}>
+                {debugInfo.template_version_id != null && (
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>Template version ID:</strong> <code>{debugInfo.template_version_id}</code>
+                  </div>
+                )}
+                {debugInfo.repair_log?.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>Repair log:</strong>
+                    <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                      {debugInfo.repair_log.map((msg, i) => (
+                        <li key={i}>{msg}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <details style={{ marginTop: 8 }}>
+                  <summary>Expanded HTML (before Jinja render)</summary>
+                  <pre style={{ maxHeight: 200, overflow: "auto", background: "#f5f5f5", padding: 8, marginTop: 4 }}>{debugInfo.expanded_html}</pre>
+                </details>
+                <details style={{ marginTop: 8 }}>
+                  <summary>Final rendered HTML</summary>
+                  <pre style={{ maxHeight: 200, overflow: "auto", background: "#f5f5f5", padding: 8, marginTop: 4 }}>{debugInfo.final_html}</pre>
+                </details>
+              </div>
+            </details>
+          )}
           <button
             type="button"
-            onClick={() => setPreviewHtml(null)}
+            onClick={() => { setPreviewHtml(null); setDebugInfo(null); }}
             style={{ marginTop: 8 }}
           >
             Close preview

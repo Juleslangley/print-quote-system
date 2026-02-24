@@ -60,7 +60,8 @@ def test_render_purchase_order_smoke_creates_file_and_pdf(tmp_path, db_session, 
             doc_type="purchase_order",
             name="Smoke PO",
             engine="html_jinja",
-            content="<html><body><h1>PO {{ po.id }}</h1></body></html>",
+            content="{}",
+            template_html="<html><body><h1>PO {{ po.id }}</h1></body></html>",
             is_active=True,
         )
         db.add_all([line, tpl])
@@ -149,7 +150,7 @@ def test_get_po_pdf_endpoint_returns_200_and_pdf(db_session, supplier_id, app_wi
 
     try:
         with patch(
-            "app.api.purchase_orders.generate_po_pdf_bytes",
+            "app.services.document_renderer.get_or_create_po_pdf_bytes",
             return_value=fake_pdf,
         ):
             client = TestClient(app_with_auth_bypass)
@@ -161,5 +162,96 @@ def test_get_po_pdf_endpoint_returns_200_and_pdf(db_session, supplier_id, app_wi
         db.query(PurchaseOrderLine).filter(PurchaseOrderLine.po_id == po_id).delete(synchronize_session=False)
         db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).delete(synchronize_session=False)
         db.query(DocumentTemplate).filter(DocumentTemplate.id == tpl.id).delete(synchronize_session=False)
+        db.commit()
+
+
+def test_get_po_pdf_after_promote_returns_200(db_session, supplier_id, app_with_auth_bypass):
+    """GET /api/purchase-orders/{id}/pdf returns 200 after promote/processed."""
+    from unittest.mock import patch
+    from app.core.db import get_db
+
+    fake_pdf = b"%PDF-1.4 fake\n" + b"x" * 2000
+    app = app_with_auth_bypass
+    def fake_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = fake_get_db
+    client = TestClient(app)
+    db = db_session
+    po_id = None
+    tpl_id = None
+
+    try:
+        db.query(DocumentTemplate).filter(
+            DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True)
+        ).update({"is_active": False}, synchronize_session=False)
+        tpl = DocumentTemplate(
+            id=new_id(),
+            doc_type="purchase_order",
+            name="PO Promote Test",
+            engine="html_jinja",
+            content="{}",
+            template_html="<h1>PO {{ po.po_number or po.id }}</h1>",
+            is_active=True,
+        )
+        db.add(tpl)
+        db.flush()
+        tpl_id = tpl.id
+
+        po = PurchaseOrder(supplier_id=supplier_id, status="draft")
+        db.add(po)
+        db.flush()
+        line = PurchaseOrderLine(
+            id=new_id(),
+            po_id=po.id,
+            sort_order=0,
+            description="X",
+            supplier_product_code="S",
+            qty=1,
+            uom="ea",
+            unit_cost_gbp=10.0,
+            line_total_gbp=10.0,
+            active=True,
+        )
+        db.add(line)
+        db.commit()
+        db.refresh(po)
+        po_id = po.id
+
+        promote_res = client.post(f"/api/purchase-orders/{po_id}/promote")
+        assert promote_res.status_code == 200
+
+        with patch(
+            "app.services.document_renderer.get_or_create_po_pdf_bytes",
+            return_value=fake_pdf,
+        ):
+            pdf_res = client.get(f"/api/purchase-orders/{po_id}/pdf")
+        assert pdf_res.status_code == 200
+        assert pdf_res.headers.get("content-type", "").startswith("application/pdf")
+        assert len(pdf_res.content) > 1000
+    finally:
+        from app.core.db import get_db
+        app.dependency_overrides.pop(get_db, None)
+        if tpl_id:
+            from app.models.document_render import DocumentRender
+            from app.models.file import File as FileRow
+            drs = db.query(DocumentRender).filter(DocumentRender.template_id == tpl_id).all()
+            file_ids = [dr.file_id for dr in drs]
+            backend_root = pathlib.Path(__file__).resolve().parent.parent
+            for fid in file_ids:
+                f = db.query(FileRow).filter(FileRow.id == fid).first()
+                if f and f.storage_key:
+                    try:
+                        (backend_root / "uploads" / f.storage_key).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            db.query(DocumentRender).filter(DocumentRender.template_id == tpl_id).delete(synchronize_session=False)
+            for fid in file_ids:
+                db.query(FileRow).filter(FileRow.id == fid).delete(synchronize_session=False)
+            # CASCADE on template_id deletes renders; with 035 migration we can delete template directly
+            db.query(DocumentTemplate).filter(DocumentTemplate.id == tpl_id).delete(synchronize_session=False)
+        if po_id:
+            db.query(PurchaseOrderLine).filter(PurchaseOrderLine.po_id == po_id).delete(synchronize_session=False)
+            db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).delete(synchronize_session=False)
         db.commit()
 

@@ -1,6 +1,8 @@
 """Build document rendering context from DB. Canonical shapes for each doc_type."""
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -126,3 +128,50 @@ def build_context(doc_type: str, entity_id: Optional[str], db: Session) -> dict[
         "terms": po.internal_notes or "",
         "vat_rate": 0.20,
     }
+
+
+def context_version_string(doc_type: str, context: dict[str, Any]) -> str:
+    """
+    Deterministic serialization of key context for render cache hash.
+    PO: lines + totals + po metadata that affects output.
+    """
+    if doc_type != "purchase_order":
+        return json.dumps({"doc_type": doc_type, "context_keys": sorted(context.keys())}, sort_keys=True)
+
+    po = context.get("po")
+    lines = context.get("lines") or []
+    totals = context.get("totals") or {}
+    delivery = context.get("delivery") or {}
+
+    line_data = []
+    for line in lines:
+        line_data.append({
+            "desc": getattr(line, "description", "") or "",
+            "code": getattr(line, "supplier_product_code", "") or "",
+            "qty": float(getattr(line, "qty", 0) or 0),
+            "uom": getattr(line, "uom", "") or "",
+            "unit_cost": float(getattr(line, "unit_cost_gbp", 0) or 0),
+            "line_total": float(getattr(line, "line_total_gbp", 0) or 0),
+        })
+    data = {
+        "lines": line_data,
+        "totals": totals,
+        "delivery": delivery,
+        "po_number": getattr(po, "po_number", "") if po else "",
+        "subtotal": float(getattr(po, "subtotal_gbp", 0) or 0) if po else 0,
+        "vat": float(getattr(po, "vat_gbp", 0) or 0) if po else 0,
+        "total": float(getattr(po, "total_gbp", 0) or 0) if po else 0,
+        "updated": str(getattr(po, "updated_at", "")) if po else "",
+    }
+    return json.dumps(data, sort_keys=True)
+
+
+def compute_render_hash(
+    template_version_id: str,
+    entity_id: str,
+    doc_type: str,
+    context_version: str,
+) -> str:
+    """SHA256 of template_version + entity + doc_type + context for cache lookup."""
+    payload = f"{template_version_id}|{entity_id}|{doc_type}|{context_version}"
+    return hashlib.sha256(payload.encode()).hexdigest()

@@ -1,7 +1,8 @@
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -17,11 +18,13 @@ from app.schemas.document_template import (
     DocumentTemplateOut,
     DocumentTemplatePreview,
     DocumentTemplateUpdate,
+    DocumentTemplateVersionOut,
 )
-from app.services.document_preview import render_preview
+from app.services.document_preview import render_preview, render_preview_with_debug
 from app.services.document_renderer import html_to_pdf_bytes
 from app.services.document_sanitizer import sanitize_html, sanitize_css
-from app.services.document_expand import validate_template_jinja, expand_jinja_blocks, deduplicate_po_lines_tables
+from app.services.document_expand import validate_template_jinja, expand_jinja_blocks
+from app.services.document_repair import ensure_single_placeholder
 
 router = APIRouter()
 
@@ -53,46 +56,87 @@ def list_templates(
     return q.order_by(DocumentTemplate.doc_type.asc(), DocumentTemplate.created_at.desc()).all()
 
 
+def _require_po_lines_or_table(html: str) -> None:
+    """Raise HTTPException if purchase_order template has no po_lines placeholder or po-lines table."""
+    if re.search(r'data-jinja-block=["\']po_lines["\']', html, re.I):
+        return
+    if re.search(r'data-template-block=["\']po-lines["\']', html, re.I):
+        return
+    if re.search(r'class=["\'][^"\']*\bpo-lines\b', html, re.I):
+        return
+    raise HTTPException(
+        status_code=400,
+        detail="Purchase order template must include a PO lines block. Add one from the editor toolbar.",
+    )
+
+
 def _apply_template_fields(t: DocumentTemplate, payload: dict) -> None:
-    """Apply and sanitize template fields. Expand, sanitize, then deduplicate (after TipTap unwrap)."""
+    """Apply and sanitize template fields. For purchase_order: ensure single placeholders, require po_lines or table."""
     if "template_html" in payload and payload["template_html"] is not None:
-        html = expand_jinja_blocks(payload["template_html"])
-        html = sanitize_html(html) or ""
-        html = deduplicate_po_lines_tables(html)
+        html = payload["template_html"]
+        if t.doc_type == "purchase_order":
+            _require_po_lines_or_table(html)
+            html, _ = ensure_single_placeholder(html, "po_lines")
+            html, _ = ensure_single_placeholder(html, "po_totals")
+        # Expand placeholders/legacy blocks before validation
+        expanded = expand_jinja_blocks(html, doc_type=t.doc_type)
+        ok, err = validate_template_jinja(
+            template_html=expanded,
+            content="",
+            doc_type=t.doc_type,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+        html = sanitize_html(expanded) or ""
         t.template_html = html or None
     if "template_json" in payload and payload["template_json"] is not None:
         t.template_json = payload["template_json"]  # JSON is not HTML, store as-is
     if "template_css" in payload and payload["template_css"] is not None:
         t.template_css = sanitize_css(payload["template_css"]) or None
-    if "content" in payload and payload["content"] is not None:
-        t.content = sanitize_html(payload["content"]) or ""
+    if "content" in payload:
+        t.content = "{}" if payload["content"] is None else (sanitize_html(payload["content"]) or "{}")
 
 
-def _validate_template_content(template_html: str | None, content: str) -> None:
-    """Raise HTTPException if template has Jinja syntax errors (e.g. unbalanced blocks)."""
-    body = (template_html or "") or (content or "")
+def _validate_template_content(
+    template_html: str | None,
+    doc_type: str = "purchase_order",
+) -> None:
+    """Raise HTTPException if template_html has Jinja syntax errors. content is never used for validation."""
+    body = template_html or ""
     if not body.strip():
         return
-    ok, err = validate_template_jinja(template_html or "", content=content or "")
+    ok, err = validate_template_jinja(
+        template_html=body,
+        content="",
+        doc_type=doc_type,
+    )
     if not ok:
         raise HTTPException(status_code=400, detail=err)
+
+
+def _next_version_num(db: Session, template_id: str) -> int:
+    from sqlalchemy import func
+    r = db.query(func.max(DocumentTemplateVersion.version_num)).filter(
+        DocumentTemplateVersion.template_id == template_id
+    ).scalar()
+    return (r or 0) + 1
 
 
 @router.post("/document-templates", response_model=DocumentTemplateOut)
 def create_template(
     payload: DocumentTemplateCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
     _validate_doc_type(payload.doc_type)
-    _validate_template_content(payload.template_html, payload.content or "")
+    _validate_template_content(payload.template_html, doc_type=payload.doc_type)
     data = payload.model_dump()
     t = DocumentTemplate(
         id=new_id(),
         doc_type=payload.doc_type,
         name=payload.name or "",
         engine=payload.engine or "html_jinja",
-        content=payload.content or "",
+        content="{}",
         is_active=bool(payload.is_active),
     )
     _apply_template_fields(t, data)
@@ -102,6 +146,20 @@ def create_template(
             synchronize_session=False,
         )
     db.add(t)
+    db.flush()  # Get t.id for version
+    version_num = 1
+    version = DocumentTemplateVersion(
+        id=new_id(),
+        template_id=t.id,
+        version_num=version_num,
+        template_html=t.template_html,
+        template_json=t.template_json,
+        template_css=t.template_css,
+        created_by=user.id if user else None,
+    )
+    db.add(version)
+    db.flush()
+    t.current_version_id = version.id
     try:
         db.commit()
     except IntegrityError as e:
@@ -111,16 +169,71 @@ def create_template(
     return t
 
 
+@router.get("/document-templates/{template_id}/versions", response_model=list[DocumentTemplateVersionOut])
+def list_template_versions(
+    template_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """List all versions of a template, newest first."""
+    t = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    versions = (
+        db.query(DocumentTemplateVersion)
+        .filter(DocumentTemplateVersion.template_id == template_id)
+        .order_by(DocumentTemplateVersion.version_num.desc())
+        .all()
+    )
+    return versions
+
+
+@router.get("/document-templates/{template_id}/versions/{version_id}")
+def get_template_version_content(
+    template_id: str,
+    version_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Get template_html and template_css for a specific version (for preview)."""
+    v = (
+        db.query(DocumentTemplateVersion)
+        .filter(
+            DocumentTemplateVersion.template_id == template_id,
+            DocumentTemplateVersion.id == version_id,
+        )
+        .first()
+    )
+    if not v:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return {
+        "id": v.id,
+        "template_id": v.template_id,
+        "version_num": v.version_num,
+        "template_html": v.template_html or "",
+        "template_css": v.template_css or "",
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+    }
+
+
 def _get_preview_template_content(
     payload: DocumentTemplatePreview,
     db: Session,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, DocumentTemplate | None, str | None]:
     """
     Resolve template_html and template_css for preview.
-    When purchase_order + entity_id and no template content provided, use active PO template.
+    Returns (template_html, template_css, template_or_none, template_version_id).
     """
-    if payload.template_html or payload.template_css or (payload.content or "").strip():
-        return payload.template_html, payload.template_css
+    if payload.template_version_id:
+        v = (
+            db.query(DocumentTemplateVersion)
+            .filter(DocumentTemplateVersion.id == payload.template_version_id)
+            .first()
+        )
+        if v:
+            return v.template_html or "", v.template_css or "", None, v.id
+    if payload.template_html is not None or payload.template_css is not None:
+        return payload.template_html or "", payload.template_css or "", None, None
     if payload.doc_type == "purchase_order" and payload.entity_id:
         tpl = (
             db.query(DocumentTemplate)
@@ -129,8 +242,19 @@ def _get_preview_template_content(
             .first()
         )
         if tpl:
-            return tpl.template_html or "", tpl.template_css or ""
-    return None, None
+            return tpl.template_html or "", tpl.template_css or "", tpl, tpl.current_version_id
+    return None, None, None, None
+
+
+def _get_latest_template_version_id(db: Session, template_id: str) -> str | None:
+    from app.models.document_template_version import DocumentTemplateVersion
+    v = (
+        db.query(DocumentTemplateVersion)
+        .filter(DocumentTemplateVersion.template_id == template_id)
+        .order_by(DocumentTemplateVersion.created_at.desc().nullslast())
+        .first()
+    )
+    return v.id if v else None
 
 
 @router.post("/document-templates/preview")
@@ -139,22 +263,37 @@ def preview_template(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
     format: Literal["html", "pdf"] = Query("html"),
+    include_debug: bool = Query(False),
 ):
     """
     Render template for preview. Uses template_html+template_css when provided, else content.
     For purchase_order + entity_id with no template content, uses active PO template.
-    format=html (default): return HTML.
+    format=html (default): return HTML, or JSON with html+debug when include_debug=true.
     format=pdf: render to HTML, convert to PDF, return as attachment.
     """
     _validate_doc_type(payload.doc_type)
-    template_html, template_css = _get_preview_template_content(payload, db)
+    template_html, template_css, tpl_used, template_version_id = _get_preview_template_content(payload, db)
     if template_html is None and template_css is None:
         template_html = payload.template_html
         template_css = payload.template_css
+
+    if tpl_used and not template_version_id:
+        template_version_id = tpl_used.current_version_id or _get_latest_template_version_id(db, tpl_used.id)
+
+    if include_debug and format == "html":
+        html, debug_info = render_preview_with_debug(
+            template_html,
+            template_css,
+            payload.doc_type,
+            entity_id=payload.entity_id,
+            db=db,
+            template_version_id=template_version_id,
+        )
+        return JSONResponse({"html": html, "debug": debug_info})
+
     html = render_preview(
         template_html,
         template_css,
-        payload.content or "",
         payload.doc_type,
         entity_id=payload.entity_id,
         db=db,
@@ -189,34 +328,43 @@ def update_template(
     template_id: str,
     payload: DocumentTemplateUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
     t = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Template not found")
     data = payload.model_dump(exclude_unset=True)
-    if "template_html" in data or "content" in data:
-        html = data.get("template_html") if "template_html" in data else (t.template_html or "")
-        content = data.get("content") if "content" in data else (t.content or "")
-        _validate_template_content(html, content)
+    if "template_html" in data:
+        html = data.get("template_html") or ""
+        _validate_template_content(html, doc_type=t.doc_type)
     if "is_active" in data and data["is_active"] is True:
         db.query(DocumentTemplate).filter(DocumentTemplate.doc_type == t.doc_type, DocumentTemplate.is_active.is_(True)).update(
             {"is_active": False},
             synchronize_session=False,
         )
+        db.flush()
+        db.refresh(t)  # Reload t so session sees is_active=False; then setattr will mark it dirty
     _apply_template_fields(t, data)
-    for k in ("name", "content", "is_active"):
+    for k in ("name", "is_active"):
         if k in data:
             setattr(t, k, data[k])
-    # Versioning: create new version row on save
-    version = DocumentTemplateVersion(
-        id=new_id(),
-        template_id=t.id,
-        template_html=t.template_html,
-        template_json=t.template_json,
-        template_css=t.template_css,
-    )
-    db.add(version)
+    if "content" in data:
+        setattr(t, "content", "{}" if data["content"] is None else (data["content"] or "{}"))
+    # Versioning: create new version row on save (when template_html/json/css changed)
+    if "template_html" in data or "template_json" in data or "template_css" in data:
+        version_num = _next_version_num(db, t.id)
+        version = DocumentTemplateVersion(
+            id=new_id(),
+            template_id=t.id,
+            version_num=version_num,
+            template_html=t.template_html,
+            template_json=t.template_json,
+            template_css=t.template_css,
+            created_by=user.id if user else None,
+        )
+        db.add(version)
+        db.flush()
+        t.current_version_id = version.id
     db.add(t)
     try:
         db.commit()

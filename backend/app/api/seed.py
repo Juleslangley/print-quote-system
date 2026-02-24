@@ -301,89 +301,100 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #111; 
 .po-totals { width:100%; border-collapse:collapse; }
 .po-totals td { padding:6px 8px; border-bottom:1px solid #ddd; }
 .po-totals .grand td { font-weight:900; border-bottom:2px solid #111; }
-.po-footer { margin-top:18px; font-size:11px; color:#666; }"""
+.po-footer { margin-top:18px; font-size:11px; color:#666; }
+"""
         po_body = """
 <div class="po-page">
 
-<div class="po-header">
-<div class="po-company">
-<div class="po-title">Purchase Order</div>
-<div class="po-company-name">Chartwell Press</div>
-</div>
+  <div class="po-header">
+    <div class="po-company">
+      <div class="po-title">Purchase Order</div>
+      <div class="po-company-name">Chartwell Press</div>
+    </div>
 
-<div class="po-meta">
-<div><strong>PO No:</strong> {{ po.po_number or 'Draft' }}</div>
-<div><strong>Order date:</strong> {{ po.order_date.strftime('%d/%m/%Y') if po.order_date else '' }}</div>
-{% if po.required_by %}<div><strong>Required by:</strong> {{ po.required_by.strftime('%d/%m/%Y') }}</div>{% endif %}
-{% if po.expected_by %}<div><strong>Expected by:</strong> {{ po.expected_by.strftime('%d/%m/%Y') }}</div>{% endif %}
-</div>
-</div>
+    <div class="po-meta">
+      <div><strong>PO No:</strong> {{ po.po_number if po.po_number and not po.po_number.startswith('DRAFT-') else 'Draft' }}</div>
+      <div><strong>Order date:</strong> {{ po.order_date.strftime('%d/%m/%Y') if po.order_date else '' }}</div>
+      {% if po.required_by %}<div><strong>Required by:</strong> {{ po.required_by.strftime('%d/%m/%Y') }}</div>{% endif %}
+      {% if po.expected_by %}<div><strong>Expected by:</strong> {{ po.expected_by.strftime('%d/%m/%Y') }}</div>{% endif %}
+    </div>
+  </div>
 
-<div class="po-addresses">
-<div class="po-address">
-<div class="label">Supplier</div>
-<div>{{ supplier.name if supplier else '' }}</div>
-{% if supplier and supplier.address %}<div>{{ supplier.address }}</div>{% endif %}
-{% if supplier and supplier.city %}<div>{{ supplier.city }}</div>{% endif %}
-{% if supplier and supplier.postcode %}<div>{{ supplier.postcode }}</div>{% endif %}
-{% if supplier and supplier.country %}<div>{{ supplier.country }}</div>{% endif %}
-{% if supplier and supplier.email %}<div>{{ supplier.email }}</div>{% endif %}
-{% if supplier and supplier.phone %}<div>{{ supplier.phone }}</div>{% endif %}
+  <div class="po-addresses">
+    <div class="po-address">
+      <div class="label">Supplier</div>
+      <div>{{ supplier.name if supplier else '' }}</div>
+      {% if supplier and supplier.address %}<div>{{ supplier.address }}</div>{% endif %}
+      {% if supplier and supplier.city %}<div>{{ supplier.city }}</div>{% endif %}
+      {% if supplier and supplier.postcode %}<div>{{ supplier.postcode }}</div>{% endif %}
+      {% if supplier and supplier.country %}<div>{{ supplier.country }}</div>{% endif %}
+      {% if supplier and supplier.email %}<div>{{ supplier.email }}</div>{% endif %}
+      {% if supplier and supplier.phone %}<div>{{ supplier.phone }}</div>{% endif %}
+    </div>
+
+    <div class="po-address">
+      <div class="label">Deliver to</div>
+      {% if po.delivery_name or po.delivery_address %}
+        {% if po.delivery_name %}<div>{{ po.delivery_name }}</div>{% endif %}
+        {% if po.delivery_address %}<div>{{ po.delivery_address }}</div>{% endif %}
+      {% else %}
+        <div>Chartwell Press</div>
+        <div>171 Waterside Road</div>
+        <div>Hamilton Industrial Park</div>
+        <div>Leicester</div>
+        <div>LE5 1TL</div>
+        <div>United Kingdom</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if po.notes %}<div class="po-notes"><strong>Notes</strong><div>{{ po.notes }}</div></div>{% endif %}
+
+  <table class="po-lines">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Supplier code</th>
+        <th class="right">Qty</th>
+        <th>UOM</th>
+        <th class="right">Unit cost</th>
+        <th class="right">Line total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if lines and (lines|length) > 0 %}
+        {% for line in lines %}
+          <tr>
+            <td>{{ line.description or '—' }}</td>
+            <td>{{ line.supplier_product_code or '—' }}</td>
+            <td class="right">{{ '%.2f'|format(line.qty or 0) }}</td>
+            <td>{{ line.uom or '—' }}</td>
+            <td class="right">£{{ '%.2f'|format(line.unit_cost_gbp or 0) }}</td>
+            <td class="right">£{{ '%.2f'|format(line.line_total_gbp or 0) }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="6" class="center">No lines</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <div class="po-totals-wrap">
+    <table class="po-totals">
+      <tbody>
+        <tr><td>Subtotal</td><td class="right">£{{ '%.2f'|format(po.subtotal_gbp or 0) }}</td></tr>
+        <tr><td>VAT</td><td class="right">£{{ '%.2f'|format(po.vat_gbp or 0) }}</td></tr>
+        <tr class="grand"><td>Total</td><td class="right">£{{ '%.2f'|format(po.total_gbp or 0) }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="po-footer">
+    Generated by Chartwell Press · Please quote PO number on all correspondence.
+  </div>
+
 </div>
-
-<div class="po-address">
-<div class="label">Delivery</div>
-{% if po.delivery_name %}<div>{{ po.delivery_name }}</div>{% endif %}
-{% if po.delivery_address %}<div>{{ po.delivery_address }}</div>{% endif %}
-</div>
-</div>
-
-{% if po.notes %}<div class="po-notes"><strong>Notes</strong><div>{{ po.notes }}</div></div>{% endif %}
-
-<table class="po-lines">
-<thead>
-<tr>
-<th>Description</th>
-<th>Supplier code</th>
-<th class="right">Qty</th>
-<th>UOM</th>
-<th class="right">Unit cost</th>
-<th class="right">Line total</th>
-</tr>
-</thead>
-<tbody>
-{% if lines and (lines|length) > 0 %}
-{% for line in lines %}
-<tr>
-<td>{{ line.description or '—' }}</td>
-<td>{{ line.supplier_product_code or '—' }}</td>
-<td class="right">{{ '%.2f'|format(line.qty or 0) }}</td>
-<td>{{ line.uom or '—' }}</td>
-<td class="right">£{{ '%.2f'|format(line.unit_cost_gbp or 0) }}</td>
-<td class="right">£{{ '%.2f'|format(line.line_total_gbp or 0) }}</td>
-</tr>
-{% endfor %}
-{% else %}
-<tr><td colspan="6" class="center">No lines</td></tr>
-{% endif %}
-</tbody>
-</table>
-
-<div class="po-totals-wrap">
-<table class="po-totals">
-<tbody>
-<tr><td>Subtotal</td><td class="right">£{{ '%.2f'|format(po.subtotal_gbp or 0) }}</td></tr>
-<tr><td>VAT</td><td class="right">£{{ '%.2f'|format(po.vat_gbp or 0) }}</td></tr>
-<tr class="grand"><td>Total</td><td class="right">£{{ '%.2f'|format(po.total_gbp or 0) }}</td></tr>
-</tbody>
-</table>
-</div>
-
-<div class="po-footer">
-Generated by Chartwell Press · Please quote PO number on all correspondence.
-</div>
-
-</div>"""
+"""
         po_html = f"""<!doctype html>
 <html>
   <head><meta charset="utf-8"><style>{po_css}</style></head>

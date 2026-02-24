@@ -24,7 +24,6 @@ from app.schemas.purchase_order import (
     CreatedByUser,
 )
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
-from app.services.document_renderer import generate_po_pdf_bytes
 from app.services.purchase_order_workflow import transition_po_status
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy import text
@@ -186,14 +185,15 @@ def create_purchase_order(
 def get_po_pdf(
     po_id: int,
     db: Session = Depends(get_db),
-    _=Depends(require_sales),
+    user: User = Depends(require_sales),
 ):
-    """Return PO as PDF using the active purchase_order document template."""
+    """Return PO as PDF. Uses cached render if exists, else generates and persists. Never 404 if PO exists."""
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     try:
-        pdf_bytes = generate_po_pdf_bytes(db, po_id)
+        from app.services.document_renderer import get_or_create_po_pdf_bytes
+        pdf_bytes = get_or_create_po_pdf_bytes(db, po_id, user.id if user else None)
     except ValueError as e:
         msg = str(e)
         if "not found" in msg.lower():

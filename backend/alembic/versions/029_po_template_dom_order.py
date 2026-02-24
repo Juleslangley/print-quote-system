@@ -47,8 +47,17 @@ PO_TEMPLATE_BODY = """
 
 <div class="po-address">
 <div class="label">Delivery</div>
+{% if po.delivery_name or po.delivery_address %}
 {% if po.delivery_name %}<div>{{ po.delivery_name }}</div>{% endif %}
 {% if po.delivery_address %}<div>{{ po.delivery_address }}</div>{% endif %}
+{% else %}
+<div>Chartwell Press</div>
+<div>171 Waterside Road</div>
+<div>Hamilton Industrial Park</div>
+<div>Leicester</div>
+<div>LE5 1TL</div>
+<div>United Kingdom</div>
+{% endif %}
 </div>
 </div>
 

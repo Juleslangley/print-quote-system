@@ -8,7 +8,10 @@ from jinja2 import Environment, BaseLoader, select_autoescape
 from sqlalchemy.orm import Session
 
 from app.services.document_context import build_context
-from app.services.document_expand import expand_jinja_blocks as expand_jinja_blocks_py
+from app.services.document_expand import (
+    expand_jinja_blocks as expand_jinja_blocks_py,
+    expand_jinja_blocks_with_log,
+)
 
 
 def _jinja_env() -> Environment:
@@ -174,26 +177,58 @@ def get_preview_context(
 def render_preview(
     template_html: str | None,
     template_css: str | None,
-    content: str,
     doc_type: str,
     entity_id: Optional[str] = None,
     db: Optional[Session] = None,
 ) -> str:
-    """Render template to HTML for preview. Uses template_html+template_css if set, else content."""
+    """Render template to HTML for preview. Uses template_html only (content is ignored)."""
     ctx = get_preview_context(doc_type, entity_id, db)
     env = _jinja_env()
 
-    if template_html or template_css:
-        body = expand_jinja_blocks_py(template_html or "")
-        css_block = f"<style>\n{template_css or ''}\n</style>" if template_css else ""
-        html_doc = f"""<!doctype html>
+    body = expand_jinja_blocks_py(template_html or "", doc_type=doc_type)
+    css = template_css or ""
+    css_block = f"<style>\n{css}\n</style>" if css else ""
+    html_doc = f"""<!doctype html>
 <html>
 <head><meta charset="utf-8">{css_block}</head>
 <body>{body}</body>
 </html>"""
-        tpl = env.from_string(html_doc)
-        return tpl.render(**ctx)
-
-    body = expand_jinja_blocks_py(content or "")
-    tpl = env.from_string(body)
+    tpl = env.from_string(html_doc)
     return tpl.render(**ctx)
+
+
+def render_preview_with_debug(
+    template_html: str | None,
+    template_css: str | None,
+    doc_type: str,
+    entity_id: Optional[str] = None,
+    db: Optional[Session] = None,
+    template_version_id: Optional[str] = None,
+) -> tuple[str, dict[str, Any]]:
+    """
+    Same as render_preview but returns (html, debug_info) for Admin debug drawer.
+    Uses template_html only (content is ignored).
+    """
+    ctx = get_preview_context(doc_type, entity_id, db)
+    env = _jinja_env()
+
+    body = template_html or ""
+    css = template_css or ""
+    expanded_html, repair_log = expand_jinja_blocks_with_log(body, doc_type)
+
+    css_block = f"<style>\n{css}\n</style>" if css else ""
+    html_doc = f"""<!doctype html>
+<html>
+<head><meta charset="utf-8">{css_block}</head>
+<body>{expanded_html}</body>
+</html>"""
+    tpl = env.from_string(html_doc)
+    final_html = tpl.render(**ctx)
+
+    debug_info = {
+        "expanded_html": expanded_html,
+        "repair_log": repair_log,
+        "final_html": final_html,
+        "template_version_id": template_version_id,
+    }
+    return final_html, debug_info

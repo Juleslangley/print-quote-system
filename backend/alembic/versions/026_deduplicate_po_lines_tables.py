@@ -22,12 +22,12 @@ def upgrade() -> None:
         text("SELECT id, template_html FROM document_templates WHERE doc_type = 'purchase_order' AND template_html IS NOT NULL")
     ).fetchall()
     # Import here to avoid needing full app context
-    from app.services.document_expand import deduplicate_po_lines_tables
+    from app.services.document_repair import dedupe_tables
 
     for (tid, html) in rows:
         if not html or "po-lines" not in html:
             continue
-        cleaned = deduplicate_po_lines_tables(html)
+        cleaned, _ = dedupe_tables(html, "po-lines")
         if cleaned != html:
             conn.execute(
                 text("UPDATE document_templates SET template_html = :body WHERE id = :tid"),

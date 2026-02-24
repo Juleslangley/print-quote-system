@@ -20,9 +20,9 @@ ALLOWED_TAGS = [
 ]
 
 # Allowed attributes (safe for layout/styling)
-# data-jinja-output: used for protected Jinja blocks; do not escape inner {% %} or {{ }}
+# data-jinja-output: legacy protected blocks; data-jinja-block: atomic placeholders (po_lines, po_totals, barcode)
 ALLOWED_ATTRS = {
-    "*": ["class", "id", "style", "title", "dir", "lang", "data-jinja-output"],
+    "*": ["class", "id", "style", "title", "dir", "lang", "data-jinja-output", "data-jinja-block"],
     "a": ["href", "target", "rel"],
     "img": ["src", "alt", "width", "height"],
     "col": ["span"],
