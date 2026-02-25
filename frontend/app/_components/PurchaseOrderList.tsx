@@ -182,6 +182,7 @@ export default function PurchaseOrderList({
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="">All statuses</option>
               <option value="draft">Draft</option>
+              <option value="processed">Processed</option>
               <option value="sent">Sent</option>
               <option value="part_received">Part received</option>
               <option value="received">Received</option>

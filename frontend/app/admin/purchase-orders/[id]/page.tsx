@@ -458,7 +458,7 @@ export default function PurchaseOrderDetailPage() {
       await api(`/api/purchase-orders/${id}/promote`, { method: "POST" });
       await api(`/api/purchase-orders/${id}/status`, {
         method: "POST",
-        body: JSON.stringify({ status: "sent" }),
+        body: JSON.stringify({ status: "processed" }),
       });
       router.push(fromMaterials ? "/purchase-orders" : "/admin/purchase-orders");
     } catch (e: any) {
@@ -587,10 +587,10 @@ export default function PurchaseOrderDetailPage() {
           >
             Download PDF
           </button>
-          {po.status === "draft" && (
+          {(po.status === "draft" || po.status === "processed") && (
             <>
               <button type="button" onClick={markSent}>Mark Sent</button>
-              <button type="button" className="danger" onClick={deleteDraft}>Delete draft</button>
+              {isDraftPoNumber && <button type="button" className="danger" onClick={deleteDraft}>Delete draft</button>}
             </>
           )}
           <button type="button" onClick={() => { setReceiveOpen(true); setReceiveQtys({}); }}>Receive</button>

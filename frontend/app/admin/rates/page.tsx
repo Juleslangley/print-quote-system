@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 
@@ -82,7 +83,7 @@ export default function AdminRatesPage() {
 
   return (
     <div>
-      <p><a href="/admin">← Admin</a></p>
+      <p><Link href="/admin">← Admin</Link></p>
       <h1>Admin · Rates</h1>
 
       {err && <div style={{ padding: 10, border: "1px solid #c00", marginBottom: 12, whiteSpace: "pre-wrap" }}>{err}</div>}

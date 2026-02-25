@@ -1,5 +1,6 @@
 import logging
 from typing import Optional
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -8,10 +9,13 @@ from app.core.db import get_db
 
 logger = logging.getLogger(__name__)
 from app.api.permissions import require_admin, require_sales
+from app.core.config import settings
 from app.models.user import User
 from app.models.supplier import Supplier
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_line import PurchaseOrderLine
+from app.models.document_render import DocumentRender
+from app.models.file import File as FileRow
 from app.models.base import new_id
 from app.schemas.purchase_order import (
     PurchaseOrderCreate,
@@ -24,12 +28,16 @@ from app.schemas.purchase_order import (
 from app.schemas.purchase_order_line import PurchaseOrderLineCreate, PurchaseOrderLineOut
 from app.services.po_number import get_next_po_number
 from app.services.pdfs.purchase_order_pdf import build_po_pdf
+from app.services.purchase_order_workflow import transition_po_status
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy import text
 
 router = APIRouter()
 
 VAT_RATE = 0.20
+
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
+UPLOADS_DIR = _BACKEND_ROOT / settings.UPLOADS_DIR
 
 
 def _recalc_po_totals(db: Session, po_id: str) -> None:
@@ -239,7 +247,7 @@ def update_purchase_order(
     po_id: str,
     payload: PurchaseOrderUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
     if payload.po_number is not None:
         raise HTTPException(status_code=400, detail="po_number cannot be updated once created")
@@ -247,6 +255,12 @@ def update_purchase_order(
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     data = payload.model_dump(exclude_unset=True, exclude={"po_number"})
+    requested_status = data.get("status") if "status" in data else None
+    # Apply status transition via single source of truth (includes render hook)
+    if requested_status is not None:
+        transition_po_status(db, po, str(requested_status), user.id)
+        # Remove status so the generic attribute setter doesn't overwrite status again
+        data.pop("status", None)
     for k, v in data.items():
         if k == "po_number":
             continue
@@ -308,17 +322,17 @@ def set_po_status(
     po_id: str,
     payload: StatusIn,
     db: Session = Depends(get_db),
-    _=Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
     # TODO-REMOVE: TEMP debug logging (this endpoint only sets status, not po_number)
     logger.info("PO status entry: %s %s | payload keys: %s", request.method, request.url.path, list(payload.model_dump().keys()))
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).with_for_update().first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    allowed = {"draft", "sent", "part_received", "received", "cancelled"}
+    allowed = {"draft", "processed", "sent", "part_received", "received", "cancelled"}
     if payload.status not in allowed:
         raise HTTPException(status_code=400, detail=f"status must be one of {allowed}")
-    po.status = payload.status
+    transition_po_status(db, po, payload.status, user.id)
     db.add(po)
     db.commit()
     db.refresh(po)
@@ -369,6 +383,27 @@ def get_po_pdf(
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    # Prefer the latest auto-rendered PO PDF (HTML template) when available.
+    latest_render = (
+        db.query(DocumentRender)
+        .filter(DocumentRender.doc_type == "purchase_order", DocumentRender.entity_id == po_id)
+        .order_by(DocumentRender.created_at.desc().nullslast())
+        .first()
+    )
+    if latest_render:
+        f = db.query(FileRow).filter(FileRow.id == latest_render.file_id).first()
+        if f:
+            path = UPLOADS_DIR / f.storage_key
+            if path.exists():
+                po_label = po.po_number if po.po_number and not (isinstance(po.po_number, str) and po.po_number.startswith("DRAFT-")) else "PO-draft"
+                filename = f"{po_label}.pdf"
+                return Response(
+                    content=path.read_bytes(),
+                    media_type=f.mime or "application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"},
+                )
+
     pdf_bytes = build_po_pdf(db, po)
     po_label = po.po_number if po.po_number and not (isinstance(po.po_number, str) and po.po_number.startswith("DRAFT-")) else "PO-draft"
     filename = f"{po_label}.pdf"

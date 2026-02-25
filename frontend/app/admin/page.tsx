@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 
 const ADMIN_LINKS: { key: string; href: string; label: string }[] = [
@@ -9,6 +10,7 @@ const ADMIN_LINKS: { key: string; href: string; label: string }[] = [
   { key: "admin.rates", href: "/admin/rates", label: "Rates (view + edit)" },
   { key: "admin.operations", href: "/admin/operations", label: "Operations library" },
   { key: "admin.templates", href: "/admin/templates", label: "Templates + operation order" },
+  { key: "admin.documents", href: "/admin/documents", label: "Documents" },
   { key: "admin.margins", href: "/admin/margins", label: "Margin profiles" },
   { key: "admin.purchase_orders", href: "/admin/purchase-orders", label: "Purchase orders" },
   { key: "admin.packing", href: "/admin/packing", label: "Packing Proof" },
@@ -143,7 +145,7 @@ export default function AdminHome() {
       <ul style={{ listStyle: "none", paddingLeft: 0 }}>
         {links.map(({ href, label }) => (
           <li key={href} style={{ marginBottom: 8 }}>
-            <a
+            <Link
               href={href}
               style={{
                 display: "block",
@@ -154,7 +156,7 @@ export default function AdminHome() {
               }}
             >
               {label}
-            </a>
+            </Link>
           </li>
         ))}
       </ul>
