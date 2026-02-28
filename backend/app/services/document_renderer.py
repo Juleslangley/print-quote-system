@@ -1,39 +1,30 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 
 from jinja2 import Environment, BaseLoader, select_autoescape
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models.base import new_id
 from app.models.document_render import DocumentRender
 from app.models.document_template import DocumentTemplate
-from app.models.document_template_version import DocumentTemplateVersion
 from app.models.file import File as FileRow
 from app.models.purchase_order import PurchaseOrder
 from app.services.document_context import build_context, context_version_string, compute_render_hash
-from app.services.document_expand import expand_jinja_blocks
+from app.services.po_premium_template import (
+    load_purchase_order_premium_template,
+    purchase_order_premium_version_id,
+)
 
 
 # Uploads dir relative to backend root (backend = parent of app)
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 UPLOADS_DIR = _BACKEND_ROOT / settings.UPLOADS_DIR
-
-
-def _template_version_id(db: Session, tpl: DocumentTemplate) -> str | None:
-    """Use current_version_id if set, else latest by created_at."""
-    if tpl.current_version_id:
-        return tpl.current_version_id
-    v = (
-        db.query(DocumentTemplateVersion)
-        .filter(DocumentTemplateVersion.template_id == tpl.id)
-        .order_by(DocumentTemplateVersion.version_num.desc().nullslast())
-        .first()
-    )
-    return v.id if v else None
+logger = logging.getLogger(__name__)
 
 
 def _ensure_uploads_dir() -> None:
@@ -48,10 +39,110 @@ def _jinja_env() -> Environment:
     )
 
 
+def _active_po_template_meta(db: Session) -> DocumentTemplate:
+    """
+    Resolve a template row only for metadata foreign-keys/caching.
+    We never read template_html/template_css from DB for PO rendering.
+    """
+    tpl = (
+        db.query(DocumentTemplate)
+        .filter(DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True))
+        .order_by(DocumentTemplate.updated_at.desc().nullslast(), DocumentTemplate.created_at.desc().nullslast())
+        .first()
+    )
+    if tpl:
+        return tpl
+    any_tpl = (
+        db.query(DocumentTemplate)
+        .filter(DocumentTemplate.doc_type == "purchase_order")
+        .order_by(DocumentTemplate.updated_at.desc().nullslast(), DocumentTemplate.created_at.desc().nullslast())
+        .first()
+    )
+    if any_tpl:
+        return any_tpl
+    raise ValueError("No purchase_order template metadata row found")
+
+
 def _render_html(template_content: str, context: dict) -> str:
     env = _jinja_env()
     tpl = env.from_string(template_content or "")
     return tpl.render(**context)
+
+
+def _compute_totals(lines):
+    subtotal = 0.0
+    for line in lines:
+        if isinstance(line, dict):
+            subtotal += float(line.get("line_total_gbp", 0) or 0)
+        else:
+            subtotal += float(getattr(line, "line_total_gbp", 0) or 0)
+    vat = subtotal * 0.2
+    total = subtotal + vat
+    return subtotal, vat, total
+
+
+def _build_premium_po_context(db: Session, po_id: int) -> dict:
+    po = (
+        db.query(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.lines), joinedload(PurchaseOrder.supplier))
+        .filter(PurchaseOrder.id == po_id)
+        .first()
+    )
+    if not po:
+        raise ValueError("Purchase order not found")
+    lines = [line for line in (po.lines or []) if getattr(line, "active", False)]
+    supplier = po.supplier
+
+    subtotal_val = getattr(po, "subtotal_gbp", None)
+    vat_val = getattr(po, "vat_gbp", None)
+    total_val = getattr(po, "total_gbp", None)
+    if not subtotal_val or not vat_val or not total_val:
+        subtotal, vat, total = _compute_totals(lines)
+        po.subtotal_gbp = subtotal
+        po.vat_gbp = vat
+        po.total_gbp = total
+
+    logger.info(
+        "PO premium render: po_id=%s supplier_id=%s lines=%s",
+        po.id,
+        po.supplier_id,
+        len(lines),
+    )
+
+    context = build_context("purchase_order", str(po_id), db) or {}
+    context["po"] = po
+    context["lines"] = lines
+    context["supplier"] = supplier
+    context["delivery"] = {
+        "name": getattr(po, "delivery_name", "") or "",
+        "address": getattr(po, "delivery_address", "") or "",
+    }
+    return context
+
+
+def debug_premium_po_context(db: Session, po_id: int) -> dict[str, object]:
+    """
+    Dev helper: inspect premium PO context data coverage without rendering.
+    Returns key diagnostics for supplier/lines presence.
+    """
+    ctx = _build_premium_po_context(db, po_id)
+    supplier = ctx.get("supplier")
+    lines = ctx.get("lines") or []
+    first_line = lines[0] if lines else None
+    return {
+        "po_id": po_id,
+        "supplier_name": (
+            supplier.get("name")
+            if isinstance(supplier, dict)
+            else getattr(supplier, "name", None)
+        ),
+        "line_count": len(lines),
+        "first_line_description": (
+            first_line.get("description")
+            if isinstance(first_line, dict)
+            else getattr(first_line, "description", None)
+        ),
+    }
 
 
 def _html_to_pdf_bytes(html: str) -> bytes:
@@ -72,21 +163,10 @@ def get_or_create_po_pdf_bytes(db: Session, po_id: int, user_id: str | None) -> 
     Get PO PDF bytes: return from cache if exists, else generate and persist.
     Never 404 if PO exists; generates on first request.
     """
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
-    if not po:
-        raise ValueError("Purchase order not found")
-
-    tpl = (
-        db.query(DocumentTemplate)
-        .filter(DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True))
-        .order_by(DocumentTemplate.updated_at.desc().nullslast(), DocumentTemplate.created_at.desc().nullslast())
-        .first()
-    )
-    if not tpl:
-        raise ValueError("No active purchase_order document template")
-
-    version_id = _template_version_id(db, tpl)
-    context = build_context("purchase_order", str(po_id), db)
+    context = _build_premium_po_context(db, po_id)
+    po = context["po"]
+    tpl = _active_po_template_meta(db)
+    version_id = purchase_order_premium_version_id()
     if context and version_id:
         ctx_ver = context_version_string("purchase_order", context)
         r_hash = compute_render_hash(version_id, str(po_id), "purchase_order", ctx_ver)
@@ -123,24 +203,11 @@ def generate_po_pdf_bytes(db: Session, po_id: int) -> bytes:
     Generate PO PDF bytes using the active purchase_order template.
     Returns cached PDF when possible. Raises ValueError if PO not found or no active template.
     """
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
-    if not po:
-        raise ValueError("Purchase order not found")
-
-    tpl = (
-        db.query(DocumentTemplate)
-        .filter(DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True))
-        .order_by(DocumentTemplate.updated_at.desc().nullslast(), DocumentTemplate.created_at.desc().nullslast())
-        .first()
-    )
-    if not tpl:
-        raise ValueError("No active purchase_order document template")
-    if (tpl.engine or "html_jinja") != "html_jinja":
-        raise ValueError("Unsupported template engine")
-
-    version_id = _template_version_id(db, tpl)
+    context = _build_premium_po_context(db, po_id)
+    po = context["po"]
+    tpl = _active_po_template_meta(db)
+    version_id = purchase_order_premium_version_id()
     if version_id:
-        context = build_context("purchase_order", str(po_id), db)
         if context:
             ctx_ver = context_version_string("purchase_order", context)
             r_hash = compute_render_hash(version_id, str(po_id), "purchase_order", ctx_ver)
@@ -161,14 +228,11 @@ def generate_po_pdf_bytes(db: Session, po_id: int) -> bytes:
                     if path.exists():
                         return path.read_bytes()
 
-    body = expand_jinja_blocks(tpl.template_html or "", doc_type="purchase_order")
-    css = tpl.template_css or ""
+    po_html, po_css = load_purchase_order_premium_template()
+    body = po_html or ""
+    css = po_css or ""
     css_block = f"<style>\n{css}\n</style>" if css else ""
     template_content = f"<!doctype html><html><head><meta charset=\"utf-8\">{css_block}</head><body>{body}</body></html>"
-
-    context = build_context("purchase_order", str(po_id), db)
-    if not context:
-        raise ValueError("Failed to build PO context")
 
     html = _render_html(template_content, context)
     return _html_to_pdf_bytes(html)
@@ -179,25 +243,10 @@ def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> 
     DB-session variant (used internally and by API hooks).
     Returns the created file_id. Uses render cache when template version + context unchanged.
     """
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
-    if not po:
-        raise ValueError("Purchase order not found")
-
-    tpl = (
-        db.query(DocumentTemplate)
-        .filter(DocumentTemplate.doc_type == "purchase_order", DocumentTemplate.is_active.is_(True))
-        .order_by(DocumentTemplate.updated_at.desc().nullslast(), DocumentTemplate.created_at.desc().nullslast())
-        .first()
-    )
-    if not tpl:
-        raise ValueError("No active purchase_order document template")
-    if (tpl.engine or "html_jinja") != "html_jinja":
-        raise ValueError("Unsupported template engine")
-
-    version_id = _template_version_id(db, tpl)
-    context = build_context("purchase_order", str(po_id), db)
-    if not context:
-        raise ValueError("Failed to build PO context")
+    context = _build_premium_po_context(db, po_id)
+    po = context["po"]
+    tpl = _active_po_template_meta(db)
+    version_id = purchase_order_premium_version_id()
 
     if version_id:
         ctx_ver = context_version_string("purchase_order", context)
@@ -216,8 +265,9 @@ def render_purchase_order_for_session(db: Session, po_id: int, user_id: str) -> 
             return cached.file_id
 
     # Cache miss: render and persist
-    body = expand_jinja_blocks(tpl.template_html or "", doc_type="purchase_order")
-    css = tpl.template_css or ""
+    po_html, po_css = load_purchase_order_premium_template()
+    body = po_html or ""
+    css = po_css or ""
     css_block = f"<style>\n{css}\n</style>" if css else ""
     template_content = f"<!doctype html><html><head><meta charset=\"utf-8\">{css_block}</head><body>{body}</body></html>"
 

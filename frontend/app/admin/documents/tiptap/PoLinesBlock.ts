@@ -33,7 +33,7 @@ export const PO_LINES_TEMPLATE_HTML = `<table class="po-lines">
 
 function asElement(dom: unknown): Element | null {
   try {
-    if (!dom || (dom as Node).nodeType !== 1) return null;
+    if (!dom || (dom as globalThis.Node).nodeType !== 1) return null;
     const el = dom as Element;
     return typeof el.getAttribute === "function" ? el : null;
   } catch {

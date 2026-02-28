@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -159,7 +160,10 @@ export function expandJinjaBlocks(html: string): string {
   div.innerHTML = html;
   div.querySelectorAll("[data-jinja-output]").forEach((el) => {
     const attr = el.getAttribute("data-jinja-output") ?? "";
-    const replacement = attr.trim().length > 0 ? attr : (el as HTMLElement).innerHTML;
+    const replacement =
+      attr === "" || attr === "true"
+        ? (el as HTMLElement).innerHTML
+        : attr;
     if (replacement) {
       const frag = document.createElement("template");
       frag.innerHTML = replacement;
@@ -233,20 +237,79 @@ export function useDocumentTemplateEditor(
   });
 }
 
+const TEXTAREA_STYLE: CSSProperties = {
+  fontFamily: "ui-monospace, monospace",
+  fontSize: 12,
+  width: "100%",
+  resize: "vertical",
+};
+
+function getBlockSnippet(blockType: string, docType: string): string {
+  switch (blockType) {
+    case "lineItemsTable": return PO_LINES_TEMPLATE_HTML;
+    case "storePackingTable": return STORE_PACKING_JINJA;
+    case "totalsBlock": return docType === "purchase_order" ? PO_TOTALS_JINJA : TOTALS_JINJA;
+    case "barcodeBlock": return BARCODE_JINJA;
+    default: return "";
+  }
+}
+
 type DocumentTemplateEditorProps = {
   editor: Editor | null;
   docType: string;
+  editorMode: "raw" | "visual";
+  engine?: string;
   onHtmlChange?: (html: string) => void;
-  onJsonChange?: (json: string) => void;
+  templateHtml?: string;
+  rawTextareaTestId?: string;
 };
 
 export function DocumentTemplateEditor({
   editor,
   docType,
+  editorMode,
+  engine = "html_jinja",
   onHtmlChange,
-  onJsonChange,
+  templateHtml = "",
+  rawTextareaTestId,
 }: DocumentTemplateEditorProps) {
-  const onInsertField = useCallback(
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isJinja = engine === "html_jinja";
+
+  const insertAtCursor = useCallback(
+    (text: string) => {
+      const ta = textareaRef.current;
+      if (!ta) {
+        onHtmlChange?.((templateHtml || "") + text);
+        return;
+      }
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const newVal = templateHtml.slice(0, start) + text + templateHtml.slice(end);
+      onHtmlChange?.(newVal);
+      const newPos = start + text.length;
+      requestAnimationFrame(() => {
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = newPos;
+      });
+    },
+    [templateHtml, onHtmlChange]
+  );
+
+  const onInsertFieldRaw = useCallback(
+    (token: string) => insertAtCursor(token),
+    [insertAtCursor]
+  );
+
+  const onInsertBlockRaw = useCallback(
+    (blockType: string) => {
+      const snippet = getBlockSnippet(blockType, docType);
+      if (snippet) insertAtCursor(snippet);
+    },
+    [insertAtCursor, docType]
+  );
+
+  const onInsertFieldVisual = useCallback(
     (token: string) => {
       if (!editor) return;
       editor.chain().focus().insertContent(token).run();
@@ -268,11 +331,7 @@ export function DocumentTemplateEditor({
     [editor]
   );
 
-  /** Escape for HTML attribute value (backend will unescape). */
-  const escapeAttr = useCallback((s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"), []);
-
-  const onInsertBlock = useCallback(
+  const onInsertBlockVisual = useCallback(
     (blockType: string) => {
       if (!editor) return;
       const totalsJinja = docType === "purchase_order" ? PO_TOTALS_JINJA : TOTALS_JINJA;
@@ -286,8 +345,7 @@ export function DocumentTemplateEditor({
           editor.chain().focus().insertContent({ type: "poLinesBlock" }).run();
           return;
         }
-        // Non-PO: insert as single HTML block so TipTap cannot split {% if %} across nodes
-        const wrapper = `<div data-type="jinjaBlock" data-label="PO Line Items Table" data-jinja-output="${escapeAttr(PO_LINES_TEMPLATE_HTML)}"></div>`;
+        const wrapper = `<div data-jinja-output="">${PO_LINES_TEMPLATE_HTML}</div>`;
         editor.chain().focus().insertContent(wrapper, { parseOptions: { preserveWhitespace: "full" } }).run();
       } else if (blockType === "storePackingTable") {
         editor.chain().focus().insertContent({ type: "storePackingTable" }).run();
@@ -317,17 +375,49 @@ export function DocumentTemplateEditor({
         editor.chain().focus().insertContent({ type: "barcodeBlock" }).run();
       }
     },
-    [editor, docType, findBlockPos, escapeAttr]
+    [editor, docType, findBlockPos]
   );
+
+  if (isJinja || editorMode === "raw") {
+    return (
+      <div className="doc-template-editor-wrap doc-template-textarea-mode">
+        {!isJinja && (
+          <div className="doc-editor-toolbar">
+            <InsertFieldDropdown onSelect={onInsertFieldRaw} docType={docType} />
+            <div className="toolbar-sep" />
+            <BlockMenu onSelect={onInsertBlockRaw} />
+          </div>
+        )}
+        <textarea
+          data-testid={isJinja ? "jinja-raw-editor" : rawTextareaTestId}
+          ref={textareaRef}
+          value={templateHtml}
+          onChange={(e) => onHtmlChange?.(e.target.value)}
+          placeholder="<div>{{ po.po_number }}… {% if lines %}…{% endif %} …</div>"
+          rows={18}
+          style={{
+            ...TEXTAREA_STYLE,
+            height: 420,
+            minHeight: 200,
+            whiteSpace: "pre",
+            overflowWrap: "normal",
+            wordBreak: "normal",
+          }}
+          spellCheck={false}
+          wrap="off"
+        />
+      </div>
+    );
+  }
 
   if (!editor) return null;
 
   return (
     <div className="doc-template-editor-wrap">
       <div className="doc-editor-toolbar">
-        <InsertFieldDropdown onSelect={onInsertField} docType={docType} />
+        <InsertFieldDropdown onSelect={onInsertFieldVisual} docType={docType} />
         <div className="toolbar-sep" />
-        <BlockMenu onSelect={onInsertBlock} />
+        <BlockMenu onSelect={onInsertBlockVisual} />
       </div>
       <EditorContent editor={editor} />
     </div>

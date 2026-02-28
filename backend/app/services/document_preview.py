@@ -12,6 +12,8 @@ from app.services.document_expand import (
     expand_jinja_blocks as expand_jinja_blocks_py,
     expand_jinja_blocks_with_log,
 )
+from app.services.document_renderer import _build_premium_po_context
+from app.services.po_premium_template import load_purchase_order_premium_template
 
 
 def _jinja_env() -> Environment:
@@ -160,6 +162,11 @@ def get_preview_context(
     - Else -> mock context fallback.
     """
     if doc_type == "purchase_order" and entity_id and db:
+        try:
+            return _build_premium_po_context(db, int(entity_id))
+        except Exception:
+            # Keep preview resilient for invalid entity_id or missing PO in admin flows.
+            pass
         ctx = build_context(doc_type, entity_id, db)
         if ctx:
             return ctx
@@ -185,8 +192,13 @@ def render_preview(
     ctx = get_preview_context(doc_type, entity_id, db)
     env = _jinja_env()
 
-    body = expand_jinja_blocks_py(template_html or "", doc_type=doc_type)
-    css = template_css or ""
+    if doc_type == "purchase_order":
+        po_html, po_css = load_purchase_order_premium_template()
+        body = po_html
+        css = po_css
+    else:
+        body = expand_jinja_blocks_py(template_html or "", doc_type=doc_type, balance_blocks=True)
+        css = template_css or ""
     css_block = f"<style>\n{css}\n</style>" if css else ""
     html_doc = f"""<!doctype html>
 <html>
@@ -212,9 +224,14 @@ def render_preview_with_debug(
     ctx = get_preview_context(doc_type, entity_id, db)
     env = _jinja_env()
 
-    body = template_html or ""
-    css = template_css or ""
-    expanded_html, repair_log = expand_jinja_blocks_with_log(body, doc_type)
+    if doc_type == "purchase_order":
+        po_html, po_css = load_purchase_order_premium_template()
+        body = po_html
+        css = po_css
+    else:
+        body = template_html or ""
+        css = template_css or ""
+    expanded_html, repair_log = expand_jinja_blocks_with_log(body, doc_type, balance_blocks=True)
 
     css_block = f"<style>\n{css}\n</style>" if css else ""
     html_doc = f"""<!doctype html>

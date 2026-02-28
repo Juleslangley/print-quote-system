@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlalchemy.orm import Mapped, mapped_column, attributes
+from sqlalchemy.orm import Mapped, mapped_column, attributes, relationship, foreign
 from sqlalchemy import String, Float, ForeignKey, DateTime, BigInteger, func, event
 from app.core.db import Base
 from app.models.base import TimestampMixin
@@ -31,6 +31,14 @@ class PurchaseOrder(Base, TimestampMixin):
     vat_gbp: Mapped[float] = mapped_column(Float, default=0.0)
     total_gbp: Mapped[float] = mapped_column(Float, default=0.0)
     created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.id"), nullable=True, index=True)
+    supplier = relationship("Supplier", lazy="selectin")
+    lines = relationship(
+        "PurchaseOrderLine",
+        primaryjoin="PurchaseOrder.id==foreign(PurchaseOrderLine.po_id)",
+        back_populates="po",
+        order_by="PurchaseOrderLine.sort_order.asc().nulls_last(), PurchaseOrderLine.id.asc()",
+        lazy="selectin",
+    )
 
 
 def _is_valid_po_number_set(target: "PurchaseOrder", oldvalue, value) -> bool:

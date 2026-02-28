@@ -1,0 +1,104 @@
+<div class="po-page">
+  <header class="po-header">
+    <div class="po-title-wrap">
+      <h1>Purchase Order</h1>
+      <div class="brand">Chartwell Press</div>
+    </div>
+    <table class="meta">
+      <tr>
+        <th>PO No</th>
+        <td>{{ "Draft" if (po.po_number or "").startswith("DRAFT-") else (po.po_number or "Draft") }}</td>
+      </tr>
+      <tr>
+        <th>Date</th>
+        <td>{{ po.order_date.strftime('%d/%m/%Y') if po.order_date else "—" }}</td>
+      </tr>
+      <tr>
+        <th>Required by</th>
+        <td>{{ po.required_by.strftime('%d/%m/%Y') if po.required_by else "—" }}</td>
+      </tr>
+      <tr>
+        <th>Expected by</th>
+        <td>{{ po.expected_by.strftime('%d/%m/%Y') if po.expected_by else "—" }}</td>
+      </tr>
+    </table>
+  </header>
+
+  <section class="address-grid">
+    <div class="card">
+      <h2>Supplier</h2>
+      <p>{{ supplier.name or "—" }}</p>
+      <p>{{ supplier.address or "—" }}</p>
+      <p>{{ supplier.city or "—" }} {{ supplier.postcode or "" }}</p>
+      <p>{{ supplier.country or "—" }}</p>
+      <p>{{ supplier.email or "—" }}</p>
+      <p>{{ supplier.phone or "—" }}</p>
+    </div>
+    <div class="card">
+      <h2>Deliver to</h2>
+      {% if po.delivery_name or po.delivery_address %}
+        <p>{{ po.delivery_name or "—" }}</p>
+        <p>{{ po.delivery_address or "—" }}</p>
+      {% else %}
+        <p>Chartwell Press Ltd</p>
+        <p>171 Waterside Road</p>
+        <p>Hamilton Industrial Park</p>
+        <p>Leicester</p>
+        <p>LE5 1TL</p>
+        <p>United Kingdom</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if po.notes %}
+    <section class="notes">
+      <h2>Notes</h2>
+      <p>{{ po.notes }}</p>
+    </section>
+  {% endif %}
+
+  <table class="po-lines">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Supplier code</th>
+        <th class="right">Qty</th>
+        <th>UOM</th>
+        <th class="right">Unit cost</th>
+        <th class="right">Line total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+        <tr>
+          <td>{{ line.description or "—" }}</td>
+          <td>{{ line.supplier_product_code or "—" }}</td>
+          <td class="right">{{ "%.2f"|format(line.qty or 0) }}</td>
+          <td>{{ line.uom or "—" }}</td>
+          <td class="right">£{{ "%.2f"|format(line.unit_cost_gbp or 0) }}</td>
+          <td class="right">£{{ "%.2f"|format(line.line_total_gbp or 0) }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="center">No lines</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <section class="po-bottom">
+    <footer class="po-footer">Chartwell Press Ltd • Thank you for your business.</footer>
+    <table class="totals">
+      <tr>
+        <th>Subtotal</th>
+        <td>£{{ "%.2f"|format(po.subtotal_gbp or 0) }}</td>
+      </tr>
+      <tr>
+        <th>VAT</th>
+        <td>£{{ "%.2f"|format(po.vat_gbp or 0) }}</td>
+      </tr>
+      <tr class="grand">
+        <th>Total</th>
+        <td>£{{ "%.2f"|format(po.total_gbp or 0) }}</td>
+      </tr>
+    </table>
+  </section>
+</div>

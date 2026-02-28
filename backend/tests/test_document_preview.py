@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.models  # noqa: F401
-from app.services.document_blocks import expand_block_placeholders
+from app.services.document_blocks import expand_block_placeholders, expand_legacy_data_jinja_output
 from app.services.document_expand import (
     _enforce_po_dom_order,
     _fix_corrupted_lines_table,
@@ -80,7 +80,7 @@ def test_preview_with_entity_id_returns_rendered_html_with_po_number_and_lines(
     assert po.po_number in html
     assert "Test product" in html
     assert "5" in html
-    assert "<table>" in html
+    assert '<table class="po-lines">' in html
     assert "<tr>" in html
 
     # Cleanup
@@ -289,6 +289,74 @@ def test_expand_jinja_blocks_never_emits_literal_true():
     assert "ignored" not in out3
 
 
+def test_expand_data_jinja_output_empty_uses_innerHTML():
+    """data-jinja-output="" wrapper: expansion uses innerHTML (canonical protected block)."""
+    from app.services.document_blocks import BLOCK_PO_LINES
+    html = f'<h1>Header</h1><div data-jinja-output="">{BLOCK_PO_LINES}</div><p>Footer</p>'
+    out = expand_legacy_data_jinja_output(html)
+    assert "data-jinja-output" not in out
+    assert "po-lines" in out
+    assert "{% for line in lines %}" in out
+    assert "{% endif %}" in out
+    assert "<h1>Header</h1>" in out and "<p>Footer</p>" in out
+
+
+def test_preview_data_jinja_output_wrapper_renders_lines(
+    db_session, supplier_id, app_with_auth_bypass
+):
+    """
+    Template with <div data-jinja-output="">TABLE_HTML</div> wrapper
+    renders correct line data when lines exist.
+    """
+    from app.services.document_blocks import BLOCK_PO_LINES
+
+    po = PurchaseOrder(supplier_id=supplier_id, status="draft", delivery_name="D", delivery_address="A")
+    db_session.add(po)
+    db_session.flush()
+    line = PurchaseOrderLine(
+        id=new_id(),
+        po_id=po.id,
+        description="Wrapped Widget",
+        supplier_product_code="WW1",
+        qty=4,
+        uom="ea",
+        unit_cost_gbp=7,
+        line_total_gbp=28,
+        active=True,
+    )
+    db_session.add(line)
+    db_session.commit()
+    db_session.refresh(po)
+
+    template = (
+        "<h1>PO {{ po.po_number }}</h1>"
+        f'<div data-jinja-output="">{BLOCK_PO_LINES}</div>'
+    )
+    client = TestClient(app_with_auth_bypass)
+    res = client.post(
+        "/api/document-templates/preview",
+        json={
+            "doc_type": "purchase_order",
+            "entity_id": str(po.id),
+            "template_html": template,
+            "template_css": None,
+            "content": None,
+        },
+    )
+    assert res.status_code == 200, res.text
+    html = res.text
+    assert po.po_number in html
+    assert "Wrapped Widget" in html
+    assert "4" in html
+    assert "28" in html or "28.00" in html
+    assert "po-lines" in html
+    assert "true" not in html
+
+    db_session.query(PurchaseOrderLine).filter(PurchaseOrderLine.po_id == po.id).delete()
+    db_session.query(PurchaseOrder).filter(PurchaseOrder.id == po.id).delete()
+    db_session.commit()
+
+
 def test_preview_deduplicates_po_lines_tables(db_session, supplier_id, app_with_auth_bypass):
     """
     Template with duplicate po-lines tables renders only one; no duplicate "No lines" when lines exist.
@@ -338,7 +406,7 @@ def test_preview_deduplicates_po_lines_tables(db_session, supplier_id, app_with_
     html = res.text
     assert po.po_number in html
     assert "Widget" in html
-    assert html.count("po-lines") <= 1, "Should deduplicate to at most one po-lines table"
+    assert html.count('<table class="po-lines">') == 1, "Should render exactly one po-lines table"
     # "No lines" should not appear when we have lines (first table has data; second was removed)
     assert html.count("No lines") == 0, "Should not show 'No lines' when lines exist"
 
@@ -702,3 +770,180 @@ def test_strip_stray_line_refs_outside_table():
     assert "—" in out
     assert "{% for line in lines %}" in out
     assert "{{ line.description }}" in out, "Inside table preserved"
+
+
+def test_double_save_valid_jinja_succeeds(app_with_auth_bypass):
+    """
+    Regression: saving a template with valid Jinja twice must succeed both times.
+    This proves the backend doesn't corrupt the template on re-save.
+    """
+    client = TestClient(app_with_auth_bypass)
+    valid_html = (
+        "<h1>PO {{ po.po_number }}</h1>"
+        '<table class="po-lines"><thead><tr><th>Desc</th><th>Qty</th></tr></thead>'
+        "<tbody>"
+        "{% if lines and (lines|length) > 0 %}"
+        "{% for line in lines %}"
+        "<tr><td>{{ line.description }}</td><td>{{ line.qty }}</td></tr>"
+        "{% endfor %}"
+        "{% else %}"
+        '<tr><td colspan="2">No lines</td></tr>'
+        "{% endif %}"
+        "</tbody></table>"
+    )
+    create = client.post(
+        "/api/document-templates",
+        json={
+            "doc_type": "purchase_order",
+            "name": "Double Save Test",
+            "template_html": valid_html,
+            "template_css": "",
+            "content": "{}",
+            "is_active": False,
+        },
+    )
+    assert create.status_code == 200, f"First save failed: {create.text}"
+    tpl_id = create.json()["id"]
+    saved_html = create.json().get("template_html", "")
+
+    update1 = client.put(
+        f"/api/document-templates/{tpl_id}",
+        json={"template_html": saved_html, "content": "{}"},
+    )
+    assert update1.status_code == 200, f"Second save failed: {update1.text}"
+
+    saved_html_2 = update1.json().get("template_html", "")
+    update2 = client.put(
+        f"/api/document-templates/{tpl_id}",
+        json={"template_html": saved_html_2, "content": "{}"},
+    )
+    assert update2.status_code == 200, f"Third save failed: {update2.text}"
+
+    client.delete(f"/api/document-templates/{tpl_id}")
+
+
+def test_broken_jinja_missing_endif_returns_400(app_with_auth_bypass):
+    """
+    Update with broken Jinja (missing endif) returns 400 with an error
+    message that mentions the syntax problem.
+    """
+    client = TestClient(app_with_auth_bypass)
+    valid_html = (
+        "<h1>PO {{ po.po_number }}</h1>"
+        '<div data-jinja-block="po_lines"></div>'
+        '<div data-jinja-block="po_totals"></div>'
+    )
+    create = client.post(
+        "/api/document-templates",
+        json={
+            "doc_type": "purchase_order",
+            "name": "Broken Jinja Test",
+            "template_html": valid_html,
+            "template_css": "",
+            "content": "{}",
+            "is_active": False,
+        },
+    )
+    assert create.status_code == 200
+    tpl_id = create.json()["id"]
+
+    broken_html = (
+        "<h1>PO {{ po.po_number }}</h1>"
+        '<table class="po-lines"><tbody>'
+        "{% if lines %}"
+        "{% for line in lines %}"
+        "<tr><td>{{ line.description }}</td></tr>"
+        "{% endfor %}"
+        "</tbody></table>"
+    )
+    res = client.put(
+        f"/api/document-templates/{tpl_id}",
+        json={"template_html": broken_html},
+    )
+    assert res.status_code == 400, f"Expected 400, got {res.status_code}: {res.text}"
+    detail = res.json().get("detail", "")
+    assert "jinja" in detail.lower() or "endif" in detail.lower() or "unexpected" in detail.lower(), (
+        f"Error message should mention Jinja syntax issue: {detail}"
+    )
+
+    client.delete(f"/api/document-templates/{tpl_id}")
+
+
+def test_content_null_never_persisted(app_with_auth_bypass):
+    """Creating/updating with content=null must persist '{}', never NULL."""
+    client = TestClient(app_with_auth_bypass)
+    valid_html = (
+        "<h1>PO {{ po.po_number }}</h1>"
+        '<div data-jinja-block="po_lines"></div>'
+        '<div data-jinja-block="po_totals"></div>'
+    )
+    create = client.post(
+        "/api/document-templates",
+        json={
+            "doc_type": "purchase_order",
+            "name": "Null Content Safety",
+            "template_html": valid_html,
+            "template_css": "",
+            "content": None,
+            "is_active": False,
+        },
+    )
+    assert create.status_code == 200
+    tpl = create.json()
+    assert tpl["content"] is not None, "content must never be null"
+    tpl_id = tpl["id"]
+
+    update = client.put(
+        f"/api/document-templates/{tpl_id}",
+        json={"content": None},
+    )
+    assert update.status_code == 200
+    assert update.json()["content"] is not None, "content must not become null on update"
+
+    client.delete(f"/api/document-templates/{tpl_id}")
+
+
+def test_save_normalizes_encoded_ops_inside_jinja(app_with_auth_bypass):
+    """API save normalizes &gt;/&lt; inside Jinja tokens before storing."""
+    client = TestClient(app_with_auth_bypass)
+    encoded_html = (
+        "<h1>PO {{ po.po_number }}</h1>"
+        '<table class="po-lines"><tbody>'
+        "{% if (lines|length) &gt; 0 %}"
+        "{% for line in lines %}"
+        "<tr><td>{{ 1 &lt; 2 }}</td><td>{{ line.description }}</td></tr>"
+        "{% endfor %}"
+        "{% endif %}"
+        "</tbody></table>"
+    )
+    create = client.post(
+        "/api/document-templates",
+        json={
+            "doc_type": "purchase_order",
+            "name": "Normalize Encoded Ops",
+            "template_html": encoded_html,
+            "template_css": "",
+            "content": "{}",
+            "is_active": False,
+        },
+    )
+    assert create.status_code == 200, create.text
+    tpl = create.json()
+    stored = tpl.get("template_html") or ""
+    assert "{% if (lines|length) > 0 %}" in stored
+    assert "{{ 1 < 2 }}" in stored
+    assert "&gt;" not in stored
+    assert "&lt;" not in stored
+
+    update = client.put(
+        f"/api/document-templates/{tpl['id']}",
+        json={"template_html": encoded_html},
+    )
+    assert update.status_code == 200, update.text
+    updated = update.json().get("template_html") or ""
+    assert "{% if (lines|length) > 0 %}" in updated
+    assert "{{ 1 < 2 }}" in updated
+    assert "&gt;" not in updated
+    assert "&lt;" not in updated
+
+    client.delete(f"/api/document-templates/{tpl['id']}")

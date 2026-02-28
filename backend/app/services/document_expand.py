@@ -27,9 +27,56 @@ _LINES_TABLE_JINJA = """<table class="po-lines"><thead><tr><th>Description</th><
 </tbody></table>"""
 
 
+# Match <table ... class="po-lines" ...>...</table> (works when wrapped by divs after expand)
+_PO_LINES_PATTERN = r'<table[^>]*class=["\'][^"\']*\bpo-lines\b[^"\']*["\'][^>]*>[\s\S]*?</table>'
+
+
 def _strip_stray_line_refs(text: str) -> str:
     """Replace {{ line.xxx }} outside a loop with — to avoid Jinja 'line' is undefined."""
     return re.sub(r'\{\{[^}]*line\.\w+[^}]*\}\}', "—", text)
+
+
+def _strip_stray_if_endif_near_po_lines(html_content: str) -> str:
+    """
+    Remove orphaned {% if lines ... %} / {% endif %} fragments that are NOT inside
+    the canonical po-lines table (within ~500 chars of the table boundary).
+    TipTap sometimes splits the {% if %}...{% endif %} wrapper away from the table.
+    """
+    po_match = re.search(_PO_LINES_PATTERN, html_content, re.I)
+    if not po_match:
+        return html_content
+
+    table_start = po_match.start()
+    table_end = po_match.end()
+    table_block = html_content[table_start:table_end]
+
+    # Only act on the region OUTSIDE the canonical table
+    before = html_content[:table_start]
+    after = html_content[table_end:]
+
+    _IF_LINES = re.compile(
+        r'\{%\s*if\s+lines\s+(?:and\s+\(lines\|length\)\s*>\s*0\s*)?%\}', re.I
+    )
+    _ENDIF = re.compile(r'\{%\s*endif\s*%\}')
+    _ELSE = re.compile(r'\{%\s*else\s*%\}')
+
+    # Strip stray {% if lines ... %} within 500 chars before the table
+    zone = before[-500:] if len(before) > 500 else before
+    zone_prefix = before[:-500] if len(before) > 500 else ""
+    zone = _IF_LINES.sub("", zone)
+    zone = _ENDIF.sub("", zone)
+    zone = _ELSE.sub("", zone)
+    before = zone_prefix + zone
+
+    # Strip stray {% endif %} within 500 chars after the table
+    zone = after[:500]
+    zone_rest = after[500:]
+    zone = _ENDIF.sub("", zone)
+    zone = _IF_LINES.sub("", zone)
+    zone = _ELSE.sub("", zone)
+    after = zone + zone_rest
+
+    return before + table_block + after
 
 
 def fix_corrupted_po_lines_block(html: str) -> str:
@@ -119,10 +166,6 @@ def _rewrite_jinja_output_true(html_content: str) -> str:
     return re.sub(r'data-jinja-output="true"', 'data-jinja-output=""', html_content, flags=re.IGNORECASE)
 
 
-# Match <table ... class="po-lines" ...>...</table> (works when wrapped by divs after expand)
-_PO_LINES_PATTERN = r'<table[^>]*class=["\'][^"\']*\bpo-lines\b[^"\']*["\'][^>]*>[\s\S]*?</table>'
-
-
 def _strip_manual_line_loops(html_content: str) -> str:
     """Remove manual {% for line in lines %}...{% endfor %} blocks outside the canonical po-lines table."""
     # Canonical: loop body has <tr> and {{ line. }} (proper table rows). Keep it.
@@ -170,7 +213,29 @@ def _enforce_po_dom_order(html_content: str) -> str:
     return before_totals + po_block + between + totals_block + after_po
 
 
-def expand_jinja_blocks(html_content: str, doc_type: str | None = "purchase_order") -> str:
+def _balance_jinja_blocks(html_content: str) -> str:
+    """
+    Append missing {% endif %} and/or {% endfor %} when blocks are unbalanced.
+    Fixes 'Unexpected end of template' from TipTap/editor stripping closing tags.
+    """
+    if not html_content:
+        return html_content
+    # Count block opens/closes (exclude {% elif %}, {% else %} which don't open new blocks)
+    if_opens = len(re.findall(r"\{\%\s*if\s+", html_content))
+    if_closes = len(re.findall(r"\{\%\s*endif\s*\%\}", html_content))
+    for_opens = len(re.findall(r"\{\%\s*for\s+", html_content))
+    for_closes = len(re.findall(r"\{\%\s*endfor\s*\%\}", html_content))
+    missing_endfor = max(0, for_opens - for_closes)
+    missing_endif = max(0, if_opens - if_closes)
+    if missing_endfor or missing_endif:
+        suffix = (" {% endfor %}" * missing_endfor) + (" {% endif %}" * missing_endif)
+        return html_content + suffix
+    return html_content
+
+
+def expand_jinja_blocks(
+    html_content: str, doc_type: str | None = "purchase_order", balance_blocks: bool = False
+) -> str:
     """
     Replace <div data-jinja-block="po_lines"> and data-jinja-output with content.
     Fix corrupted line tables, enforce DOM order, deduplicate.
@@ -198,11 +263,18 @@ def expand_jinja_blocks(html_content: str, doc_type: str | None = "purchase_orde
     # 3. Strip manual {% for line in lines %} loops outside canonical po-lines table
     html_content = _strip_manual_line_loops(html_content)
 
-    # 4. Enforce DOM order: header → po_lines → totals (reorder if corrupted)
+    # 4. Strip stray {% if lines %} / {% endif %} fragments near po-lines table
+    html_content = _strip_stray_if_endif_near_po_lines(html_content)
+
+    # 5. Enforce DOM order: header → po_lines → totals (reorder if corrupted)
     html_content = _enforce_po_dom_order(html_content)
 
-    # 5. Structural repair layer: ampersands, stray line refs, dedupe tables
+    # 6. Structural repair layer: ampersands, stray line refs, dedupe tables
     html_content, repair_log = run_repairs(html_content, doc_type or "purchase_order")
+
+    # 7. Balance unclosed blocks when rendering (not when validating)
+    if balance_blocks:
+        html_content = _balance_jinja_blocks(html_content)
 
     return html_content
 
@@ -210,6 +282,7 @@ def expand_jinja_blocks(html_content: str, doc_type: str | None = "purchase_orde
 def expand_jinja_blocks_with_log(
     html_content: str,
     doc_type: str | None = "purchase_order",
+    balance_blocks: bool = False,
 ) -> tuple[str, list[str]]:
     """
     Same as expand_jinja_blocks but returns (html, repair_log) for debug tools.
@@ -228,10 +301,36 @@ def expand_jinja_blocks_with_log(
             break
 
     html_content = _strip_manual_line_loops(html_content)
+    html_content = _strip_stray_if_endif_near_po_lines(html_content)
     html_content = _enforce_po_dom_order(html_content)
     html_content, repair_log = run_repairs(html_content, doc_type or "purchase_order")
+    if balance_blocks:
+        html_content = _balance_jinja_blocks(html_content)
 
     return html_content, repair_log
+
+
+def repair_po_lines_html(html: str) -> str:
+    """
+    Full repair pass for purchase_order template HTML.
+    Usable standalone (e.g. by Alembic migration) without expanding placeholders.
+    """
+    if not html:
+        return html
+    html = _rewrite_jinja_output_true(html)
+    html = expand_block_placeholders(html)
+    html = expand_legacy_data_jinja_output(html)
+    while True:
+        prev = html
+        html = _fix_corrupted_lines_table(html)
+        if html == prev:
+            break
+    html = _strip_manual_line_loops(html)
+    html = _strip_stray_if_endif_near_po_lines(html)
+    html = _enforce_po_dom_order(html)
+    html, _ = run_repairs(html, "purchase_order")
+    html = _balance_jinja_blocks(html)
+    return html
 
 
 def validate_template_jinja(

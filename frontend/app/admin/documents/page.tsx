@@ -6,8 +6,6 @@ import { api, ApiError } from "@/lib/api";
 import {
   DocumentTemplateEditor,
   useDocumentTemplateEditor,
-  expandJinjaBlocks,
-  prepareHtmlForSave,
 } from "./DocumentTemplateEditor";
 
 type DocumentTemplate = {
@@ -56,6 +54,7 @@ export default function AdminDocumentsPage() {
   const [templateJson, setTemplateJson] = useState<string | null>(null);
   const [templateCss, setTemplateCss] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [mode, setMode] = useState<"visual" | "raw">("raw");
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -72,6 +71,18 @@ export default function AdminDocumentsPage() {
   const [versions, setVersions] = useState<DocumentTemplateVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>("");
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
+  const engine = selected?.engine || "html_jinja";
+  const isJinjaEngine = engine === "html_jinja";
+
+  function hasEscapedOpsInsideJinja(html: string): boolean {
+    const source = html || "";
+    const tokens: string[] = source.match(/({%[\s\S]*?%}|{{[\s\S]*?}})/g) ?? [];
+    return tokens.some((token) => token.includes("&gt;") || token.includes("&lt;"));
+  }
+
+  function getEditorHtmlForPayload(): string {
+    return editor ? editor.getHTML() : templateHtml || "";
+  }
 
   useEffect(() => {
     if (!selected) {
@@ -98,17 +109,13 @@ export default function AdminDocumentsPage() {
   }, [selectedId, selected]);
 
   const editor = useDocumentTemplateEditor(
-    templateHtml || content,
-    templateJson,
+    isJinjaEngine ? "" : (templateHtml || content),
+    isJinjaEngine ? null : templateJson,
     docType,
-    (html, json) => {
-      setTemplateHtml(html);
-      setTemplateJson(json);
-    }
   );
 
-  // Reset editor content when selected template changes
   useEffect(() => {
+    if (isJinjaEngine) return;
     if (!editor) return;
     if (!selected) {
       editor.commands.setContent("");
@@ -122,7 +129,14 @@ export default function AdminDocumentsPage() {
     } catch {
       editor.commands.setContent(html || "");
     }
-  }, [editor, selected]);
+  }, [editor, selected, mode, isJinjaEngine]);
+
+  useEffect(() => {
+    if (!isJinjaEngine) return;
+    if (mode !== "raw") {
+      setMode("raw");
+    }
+  }, [isJinjaEngine, mode]);
 
   async function load() {
     setErr("");
@@ -157,18 +171,23 @@ export default function AdminDocumentsPage() {
 
   async function createTemplate() {
     setErr("");
+    const rawHtml = templateHtml || "";
+    if (isJinjaEngine && hasEscapedOpsInsideJinja(rawHtml)) {
+      setErr("Save blocked: encoded operators (&gt; or &lt;) detected inside Jinja blocks. Fix in RAW editor.");
+      return;
+    }
+    const editorHtml = getEditorHtmlForPayload();
+    const htmlToSave = isJinjaEngine ? rawHtml : editorHtml;
     try {
-      const html = editor ? expandJinjaBlocks(editor.getHTML()) : templateHtml;
-      const json = editor ? JSON.stringify(editor.getJSON()) : templateJson;
       const created = await api<DocumentTemplate>("/api/document-templates", {
         method: "POST",
         body: JSON.stringify({
           doc_type: docType,
           name: name || `New ${docType} template`,
           engine: "html_jinja",
-          content: content || "",
-          template_html: html || "",
-          template_json: json,
+          content: content || "{}",
+          template_html: htmlToSave,
+          template_json: null,
           template_css: templateCss || "",
           is_active: isActive,
         }),
@@ -183,16 +202,24 @@ export default function AdminDocumentsPage() {
   async function saveTemplate() {
     if (!selected) return;
     setErr("");
+    const rawHtml = templateHtml || "";
+    if (isJinjaEngine && hasEscapedOpsInsideJinja(rawHtml)) {
+      setErr("Save blocked: encoded operators (&gt; or &lt;) detected inside Jinja blocks. Fix in RAW editor.");
+      return;
+    }
+    const editorHtml = getEditorHtmlForPayload();
+    const htmlToSave = isJinjaEngine ? rawHtml : editorHtml;
+    if (isJinjaEngine) {
+      console.warn("RAW Jinja save path — encoding disabled");
+    }
     try {
-      const html = editor ? prepareHtmlForSave(editor, docType) : templateHtml;
-      const json = editor ? JSON.stringify(editor.getJSON()) : templateJson;
       await api<DocumentTemplate>(`/api/document-templates/${selected.id}`, {
         method: "PUT",
         body: JSON.stringify({
           name,
-          content: content || "",
-          template_html: html,
-          template_json: json,
+          content: content || "{}",
+          template_html: htmlToSave,
+          template_json: null,
           template_css: templateCss || "",
           is_active: isActive,
         }),
@@ -228,11 +255,13 @@ export default function AdminDocumentsPage() {
   }
 
   function getPreviewBody(): Record<string, unknown> {
-    const html = editor ? expandJinjaBlocks(editor.getHTML()) : templateHtml;
+    const rawHtml = templateHtml || "";
+    const editorHtml = getEditorHtmlForPayload();
+    const htmlToPreview = isJinjaEngine ? rawHtml : editorHtml;
     const body: Record<string, unknown> = {
-      template_html: html || "",
+      template_html: htmlToPreview,
       template_css: templateCss || "",
-      content: content || "",
+      content: content || "{}",
       doc_type: docType,
     };
     if (docType === "purchase_order" && previewPoId) {
@@ -434,8 +463,91 @@ export default function AdminDocumentsPage() {
             </div>
 
             <div>
-              <label className="subtle">Template body</label>
-              <DocumentTemplateEditor editor={editor} docType={docType} />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label className="subtle">Template body</label>
+                {!isJinjaEngine && (
+                  <div style={{ display: "inline-flex", borderRadius: 6, overflow: "hidden", border: "1px solid #d1d5db" }}>
+                    <button
+                      type="button"
+                      onClick={() => setMode("raw")}
+                      style={{
+                        padding: "4px 14px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        border: "none",
+                        cursor: "pointer",
+                        background: mode === "raw" ? "#111" : "#f3f4f6",
+                        color: mode === "raw" ? "#fff" : "#374151",
+                      }}
+                    >
+                      RAW
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("visual")}
+                      style={{
+                        padding: "4px 14px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        border: "none",
+                        borderLeft: "1px solid #d1d5db",
+                        cursor: "pointer",
+                        background: mode === "visual" ? "#111" : "#f3f4f6",
+                        color: mode === "visual" ? "#fff" : "#374151",
+                      }}
+                    >
+                      Visual
+                    </button>
+                  </div>
+                )}
+              </div>
+              {isJinjaEngine && (
+                <div
+                  data-testid="jinja-raw-banner"
+                  style={{
+                    marginBottom: 8,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #fde68a",
+                    background: "#fffbeb",
+                    color: "#92400e",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  Jinja template detected — RAW editor enforced to prevent corruption
+                </div>
+              )}
+              {docType === "purchase_order" && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #bfdbfe",
+                    background: "#eff6ff",
+                    color: "#1e3a8a",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  Purchase Orders are hardwired in backend (premium template). Editor changes do not affect PO output.
+                </div>
+              )}
+              {!isJinjaEngine && mode === "visual" && (
+                <p className="subtle" style={{ fontSize: 11, margin: "0 0 6px", color: "#b45309" }}>
+                  Visual mode may alter Jinja syntax. Use RAW mode for safe editing. Saves always use RAW content.
+                </p>
+              )}
+              <DocumentTemplateEditor
+                editor={editor}
+                docType={docType}
+                editorMode={mode}
+                engine={engine}
+                templateHtml={templateHtml}
+                onHtmlChange={setTemplateHtml}
+                rawTextareaTestId="template-html-raw"
+              />
             </div>
 
             <div>
@@ -518,7 +630,7 @@ export default function AdminDocumentsPage() {
                 ) : (
                   <>
                     <button type="button" onClick={activateTemplate}>Set active</button>
-                    <button type="button" className="primary" onClick={saveTemplate}>Save</button>
+                    <button type="button" className="primary" onClick={saveTemplate} data-testid="template-save-btn">Save</button>
                     <button type="button" className="danger" onClick={deleteTemplate}>Delete</button>
                   </>
                 )}

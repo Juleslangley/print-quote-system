@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from sqlalchemy import String, Float, Integer, Boolean, BigInteger, ForeignKey
 from app.core.db import Base
 from app.models.base import TimestampMixin
@@ -20,3 +20,8 @@ class PurchaseOrderLine(Base, TimestampMixin):
     line_total_gbp: Mapped[float] = mapped_column(Float, default=0.0)
     received_qty: Mapped[float] = mapped_column(Float, default=0.0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    po = relationship(
+        "PurchaseOrder",
+        primaryjoin="foreign(PurchaseOrderLine.po_id)==PurchaseOrder.id",
+        back_populates="lines",
+    )

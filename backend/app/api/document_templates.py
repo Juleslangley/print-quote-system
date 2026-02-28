@@ -25,6 +25,7 @@ from app.services.document_renderer import html_to_pdf_bytes
 from app.services.document_sanitizer import sanitize_html, sanitize_css
 from app.services.document_expand import validate_template_jinja, expand_jinja_blocks
 from app.services.document_repair import ensure_single_placeholder
+from app.services.jinja_normalize import normalize_jinja_operators_in_tokens
 
 router = APIRouter()
 
@@ -64,6 +65,9 @@ def _require_po_lines_or_table(html: str) -> None:
         return
     if re.search(r'class=["\'][^"\']*\bpo-lines\b', html, re.I):
         return
+    # data-jinja-output wrapper with po-lines table inside innerHTML
+    if "data-jinja-output" in html and "po-lines" in html:
+        return
     raise HTTPException(
         status_code=400,
         detail="Purchase order template must include a PO lines block. Add one from the editor toolbar.",
@@ -73,13 +77,13 @@ def _require_po_lines_or_table(html: str) -> None:
 def _apply_template_fields(t: DocumentTemplate, payload: dict) -> None:
     """Apply and sanitize template fields. For purchase_order: ensure single placeholders, require po_lines or table."""
     if "template_html" in payload and payload["template_html"] is not None:
-        html = payload["template_html"]
+        html = normalize_jinja_operators_in_tokens(payload["template_html"])
         if t.doc_type == "purchase_order":
             _require_po_lines_or_table(html)
             html, _ = ensure_single_placeholder(html, "po_lines")
             html, _ = ensure_single_placeholder(html, "po_totals")
         # Expand placeholders/legacy blocks before validation
-        expanded = expand_jinja_blocks(html, doc_type=t.doc_type)
+        expanded = normalize_jinja_operators_in_tokens(expand_jinja_blocks(html, doc_type=t.doc_type))
         ok, err = validate_template_jinja(
             template_html=expanded,
             content="",
@@ -88,6 +92,7 @@ def _apply_template_fields(t: DocumentTemplate, payload: dict) -> None:
         if not ok:
             raise HTTPException(status_code=400, detail=err)
         html = sanitize_html(expanded) or ""
+        html = normalize_jinja_operators_in_tokens(html)
         t.template_html = html or None
     if "template_json" in payload and payload["template_json"] is not None:
         t.template_json = payload["template_json"]  # JSON is not HTML, store as-is
@@ -102,7 +107,7 @@ def _validate_template_content(
     doc_type: str = "purchase_order",
 ) -> None:
     """Raise HTTPException if template_html has Jinja syntax errors. content is never used for validation."""
-    body = template_html or ""
+    body = normalize_jinja_operators_in_tokens(template_html or "")
     if not body.strip():
         return
     ok, err = validate_template_jinja(
@@ -140,6 +145,8 @@ def create_template(
         is_active=bool(payload.is_active),
     )
     _apply_template_fields(t, data)
+    if t.content is None:
+        t.content = "{}"
     if t.is_active:
         db.query(DocumentTemplate).filter(DocumentTemplate.doc_type == t.doc_type, DocumentTemplate.is_active.is_(True)).update(
             {"is_active": False},
@@ -276,6 +283,7 @@ def preview_template(
     if template_html is None and template_css is None:
         template_html = payload.template_html
         template_css = payload.template_css
+    template_html = normalize_jinja_operators_in_tokens(template_html or "")
 
     if tpl_used and not template_version_id:
         template_version_id = tpl_used.current_version_id or _get_latest_template_version_id(db, tpl_used.id)
@@ -348,8 +356,8 @@ def update_template(
     for k in ("name", "is_active"):
         if k in data:
             setattr(t, k, data[k])
-    if "content" in data:
-        setattr(t, "content", "{}" if data["content"] is None else (data["content"] or "{}"))
+    if t.content is None:
+        t.content = "{}"
     # Versioning: create new version row on save (when template_html/json/css changed)
     if "template_html" in data or "template_json" in data or "template_css" in data:
         version_num = _next_version_num(db, t.id)

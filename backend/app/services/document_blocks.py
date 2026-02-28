@@ -63,9 +63,9 @@ def expand_block_placeholders(html: str) -> str:
 
 def expand_legacy_data_jinja_output(html: str) -> str:
     """
-    Expand legacy <div data-jinja-output="VALUE">INNER</div>.
+    Expand <div data-jinja-output="VALUE">INNER</div>.
     - attr empty/""/"true" -> use INNER (never emit literal "true")
-    - attr = "JINJA_STRING" -> use attribute value (legacy blocks)
+    - else -> use attribute value (legacy blocks that stored Jinja in attr)
     """
     if not html or "data-jinja-output" not in html:
         return html
