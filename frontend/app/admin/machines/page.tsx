@@ -14,6 +14,7 @@ const CATEGORIES = [
 const PROCESS_OPTIONS = [
   "",
   "uv_flatbed",
+  "eco_solvent_roll",
   "latex_roll",
   "eco_roll",
   "router",
@@ -60,7 +61,7 @@ export default function AdminMachinesPage() {
   const [items, setItems] = useState<Machine[]>([]);
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(true);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -72,9 +73,14 @@ export default function AdminMachinesPage() {
   const [notes, setNotes] = useState("");
   const [metaAdvanced, setMetaAdvanced] = useState(false);
   const [metaJson, setMetaJson] = useState("{}");
+  const [metaJsonError, setMetaJsonError] = useState<string | null>(null);
   const [sheetMaxWidthMm, setSheetMaxWidthMm] = useState("");
   const [sheetMaxHeightMm, setSheetMaxHeightMm] = useState("");
   const [rollMaxWidthMm, setRollMaxWidthMm] = useState("");
+  const [speedSqmPerHour, setSpeedSqmPerHour] = useState("");
+  const [defaultCoveragePct, setDefaultCoveragePct] = useState("");
+  const [inkMlPerSqm100pct, setInkMlPerSqm100pct] = useState("");
+  const [inkCostPerLitreGbp, setInkCostPerLitreGbp] = useState("");
 
   const [rates, setRates] = useState<MachineRate[]>([]);
   const [rateModalOpen, setRateModalOpen] = useState(false);
@@ -96,10 +102,16 @@ export default function AdminMachinesPage() {
     setProcess("");
     setActive(true);
     setNotes("");
+    setMetaAdvanced(false);
     setMetaJson("{}");
+    setMetaJsonError(null);
     setSheetMaxWidthMm("");
     setSheetMaxHeightMm("");
     setRollMaxWidthMm("");
+    setSpeedSqmPerHour("");
+    setDefaultCoveragePct("");
+    setInkMlPerSqm100pct("");
+    setInkCostPerLitreGbp("");
     setTools([]);
   }
 
@@ -108,26 +120,52 @@ export default function AdminMachinesPage() {
       setSheetMaxWidthMm("");
       setSheetMaxHeightMm("");
       setRollMaxWidthMm("");
+      setSpeedSqmPerHour("");
+      setDefaultCoveragePct("");
+      setInkMlPerSqm100pct("");
+      setInkCostPerLitreGbp("");
       setMetaJson("{}");
       setTools([]);
       return;
     }
-    setSheetMaxWidthMm(String((m as any).sheet_max_width_mm ?? ""));
-    setSheetMaxHeightMm(String((m as any).sheet_max_height_mm ?? ""));
-    setRollMaxWidthMm(String((m as any).roll_max_width_mm ?? ""));
+    const ma = m as Record<string, unknown>;
+    setSheetMaxWidthMm(String(ma.sheet_max_width_mm ?? ""));
+    setSheetMaxHeightMm(String(ma.sheet_max_height_mm ?? ""));
+    setRollMaxWidthMm(String(ma.roll_max_width_mm ?? ""));
+    setSpeedSqmPerHour(String(ma.speed_sqm_per_hour ?? ""));
+    setDefaultCoveragePct(String(ma.default_coverage_pct ?? ""));
+    setInkMlPerSqm100pct(String(ma.ink_ml_per_sqm_100pct ?? ""));
+    setInkCostPerLitreGbp(String(ma.ink_cost_per_litre_gbp ?? ""));
     setMetaJson(JSON.stringify(m, null, 2));
-    const rawTools = (m as any).tools;
-    if (Array.isArray(rawTools) && rawTools.every((t: any) => t && typeof t === "object" && "key" in t && "speed_m_per_min" in t)) {
-      setTools(rawTools.map((t: any) => ({ key: String(t.key ?? ""), name: String(t.name ?? t.key ?? ""), speed_m_per_min: Number(t.speed_m_per_min) || 0 })));
+    const rawTools = ma.tools;
+    if (Array.isArray(rawTools) && rawTools.every((t: unknown) => t !== null && typeof t === "object" && "key" in (t as object) && "speed_m_per_min" in (t as object))) {
+      setTools(rawTools.map((t: unknown) => {
+        const o = t as Record<string, unknown>;
+        return { key: String(o.key ?? ""), name: String(o.name ?? o.key ?? ""), speed_m_per_min: Number(o.speed_m_per_min) || 0 };
+      }));
     } else {
       setTools([]);
+    }
+  }
+
+  function validateMetaJson(): string | null {
+    if (!metaAdvanced) return null;
+    const s = (metaJson || "").trim();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s);
+      if (parsed !== null && typeof parsed !== "object") return "Meta must be a JSON object";
+      return null;
+    } catch (e) {
+      return e instanceof SyntaxError ? e.message : "Invalid JSON";
     }
   }
 
   function formToMeta(): Record<string, unknown> {
     if (metaAdvanced) {
       try {
-        return JSON.parse(metaJson || "{}");
+        const parsed = JSON.parse(metaJson || "{}");
+        return parsed && typeof parsed === "object" ? parsed : {};
       } catch {
         return {};
       }
@@ -136,6 +174,10 @@ export default function AdminMachinesPage() {
     if (sheetMaxWidthMm.trim() !== "") m.sheet_max_width_mm = Number(sheetMaxWidthMm) || 0;
     if (sheetMaxHeightMm.trim() !== "") m.sheet_max_height_mm = Number(sheetMaxHeightMm) || 0;
     if (rollMaxWidthMm.trim() !== "") m.roll_max_width_mm = Number(rollMaxWidthMm) || 0;
+    if (speedSqmPerHour.trim() !== "") m.speed_sqm_per_hour = Number(speedSqmPerHour) || 0;
+    if (defaultCoveragePct.trim() !== "") m.default_coverage_pct = Number(defaultCoveragePct) || 0;
+    if (inkMlPerSqm100pct.trim() !== "") m.ink_ml_per_sqm_100pct = Number(inkMlPerSqm100pct) || 0;
+    if (inkCostPerLitreGbp.trim() !== "") m.ink_cost_per_litre_gbp = Number(inkCostPerLitreGbp) || 0;
     if (category === "cutter" && tools.length > 0) {
       m.tools = tools.map((t) => ({ key: t.key.trim() || t.key, name: t.name.trim() || t.key, speed_m_per_min: t.speed_m_per_min }));
     }
@@ -156,6 +198,7 @@ export default function AdminMachinesPage() {
     setProcess(m.process || "");
     setActive(!!m.active);
     setNotes(m.notes || "");
+    setMetaAdvanced(false);
     metaToForm(m.meta || null);
     setModalOpen(true);
     loadRates(m.id);
@@ -163,26 +206,21 @@ export default function AdminMachinesPage() {
 
   function isMachineFormDirty(): boolean {
     if (editing) {
-    const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
-    const prevSheetW = (prevMeta as any).sheet_max_width_mm;
-    const prevSheetH = (prevMeta as any).sheet_max_height_mm;
-    const prevRollW = (prevMeta as any).roll_max_width_mm;
-    return (
-      (name || "").trim() !== (editing.name || "").trim() ||
-      category !== (editing.category || "printer_sheet") ||
-      (process || "").trim() !== (editing.process || "").trim() ||
-      active !== !!editing.active ||
-      (notes || "").trim() !== (editing.notes || "").trim() ||
-      (sheetMaxWidthMm || "") !== String(prevSheetW ?? "") ||
-      (sheetMaxHeightMm || "") !== String(prevSheetH ?? "") ||
-      (rollMaxWidthMm || "") !== String(prevRollW ?? "") ||
-      JSON.stringify(formToMeta()) !== JSON.stringify(prevMeta)
-    );
+      const prevMeta = editing.meta && typeof editing.meta === "object" ? editing.meta : {};
+      return (
+        (name || "").trim() !== (editing.name || "").trim() ||
+        category !== (editing.category || "printer_sheet") ||
+        (process || "").trim() !== (editing.process || "").trim() ||
+        active !== !!editing.active ||
+        (notes || "").trim() !== (editing.notes || "").trim() ||
+        JSON.stringify(formToMeta()) !== JSON.stringify(prevMeta)
+      );
     }
     // New machine: dirty if user has entered anything
     return (name || "").trim() !== "" || (process || "").trim() !== "" ||
       (notes || "").trim() !== "" || tools.length > 0 ||
-      sheetMaxWidthMm !== "" || sheetMaxHeightMm !== "" || rollMaxWidthMm !== "";
+      sheetMaxWidthMm !== "" || sheetMaxHeightMm !== "" || rollMaxWidthMm !== "" ||
+      speedSqmPerHour !== "" || defaultCoveragePct !== "" || inkMlPerSqm100pct !== "" || inkCostPerLitreGbp !== "";
   }
 
   function isRateFormDirty(): boolean {
@@ -231,7 +269,10 @@ export default function AdminMachinesPage() {
   async function load() {
     setErr("");
     try {
-      const list = await api<Machine[]>("/api/machines");
+      const url = activeOnly
+        ? "/api/machines"
+        : "/api/machines?include_inactive=true";
+      const list = await api<Machine[]>(url);
       setItems(list ?? []);
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -240,7 +281,29 @@ export default function AdminMachinesPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [activeOnly]);
+
+  useEffect(() => {
+    if (!metaAdvanced) {
+      setMetaJsonError(null);
+      return;
+    }
+    const s = (metaJson || "").trim();
+    if (!s) {
+      setMetaJsonError(null);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(s);
+      if (parsed !== null && typeof parsed !== "object") {
+        setMetaJsonError("Meta must be a JSON object");
+      } else {
+        setMetaJsonError(null);
+      }
+    } catch (e) {
+      setMetaJsonError(e instanceof SyntaxError ? e.message : "Invalid JSON");
+    }
+  }, [metaAdvanced, metaJson]);
 
   const filtered = useMemo(() => {
     const text = q.trim().toLowerCase();
@@ -260,14 +323,25 @@ export default function AdminMachinesPage() {
 
   async function saveMachine() {
     setErr("");
+    if (metaAdvanced) {
+      const jsonErr = validateMetaJson();
+      if (jsonErr) {
+        setErr(`Invalid JSON: ${jsonErr}`);
+        setMetaJsonError(jsonErr);
+        throw new Error(`Invalid JSON: ${jsonErr}`);
+      }
+    }
     try {
+      const formMeta = formToMeta();
+      // When editing, merge existing meta with form fields so backend preserves keys we don't edit (ink, speed, etc.)
+      const meta = editing ? { ...(editing.meta || {}), ...formMeta } : formMeta;
       const payload = {
         name: name.trim(),
         category,
         process: process.trim(),
         active,
         notes: notes.trim(),
-        meta: formToMeta(),
+        meta,
       };
       if (!payload.name) {
         setErr("Name is required");
@@ -291,31 +365,26 @@ export default function AdminMachinesPage() {
     if (!editing?.id) return;
     setErr("");
     try {
-      await api(`/api/machines/${editing.id}`, {
+      const updated = await api<Machine>(`/api/machines/${editing.id}`, {
         method: "PUT",
         body: JSON.stringify({ active: !editing.active }),
       });
-      setEditing((prev) => (prev ? { ...prev, active: !prev.active } : null));
+      setEditing(updated);
+      setActive(updated.active);
       await load();
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
   }
 
-  async function handleDeleteInModal() {
+  async function handleDeactivate() {
     if (!editing?.id) return;
-    if (rates.length > 0) {
-      setErr("Cannot delete: machine has rate(s). Deactivate instead.");
-      return;
-    }
-    if (!confirm(`Delete machine "${editing.name}"?`)) return;
     setErr("");
     try {
       await api(`/api/machines/${editing.id}`, { method: "DELETE" });
       doCloseModal();
       await load();
     } catch (e: any) {
-      const res = (e as any)?.body;
       setErr(e instanceof ApiError ? e.message : String(e));
     }
   }
@@ -458,7 +527,21 @@ export default function AdminMachinesPage() {
                 >
                   <td style={{ padding: "8px" }}>
                     {m.name}
-                    {!m.active && <span className="subtle"> (inactive)</span>}
+                    {!m.active && (
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          background: "#f0f0f2",
+                          color: "#6e6e73",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Inactive
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: "8px" }}>
                     {CATEGORIES.find((c) => c.value === m.category)?.label ?? m.category}
@@ -530,53 +613,169 @@ export default function AdminMachinesPage() {
             Active
           </label>
 
-          <div style={{ borderTop: "1px solid #eee", paddingTop: 12 }}>
-            <div className="subtle" style={{ marginBottom: 8, fontWeight: 600 }}>Meta (capability config)</div>
-            <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <input
-                type="checkbox"
-                checked={metaAdvanced}
-                onChange={(e) => setMetaAdvanced(e.target.checked)}
-              />
-              Advanced (edit JSON)
-            </label>
+          <div className="capabilities-section">
+            <h3 className="capabilities-title">Machine Capabilities</h3>
+            <p className="capabilities-subtitle">Used for production time + ink cost calculations.</p>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+              <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={metaAdvanced}
+                  onChange={(e) => setMetaAdvanced(e.target.checked)}
+                />
+                Advanced JSON
+              </label>
+            </div>
             {!metaAdvanced ? (
-              <div className="row" style={{ gap: 12 }}>
-                <div className="col">
-                  <label className="subtle">Sheet max width (mm)</label>
-                  <input
-                    type="number"
-                    value={sheetMaxWidthMm}
-                    onChange={(e) => setSheetMaxWidthMm(e.target.value)}
-                    placeholder="—"
-                  />
-                </div>
-                <div className="col">
-                  <label className="subtle">Sheet max height (mm)</label>
-                  <input
-                    type="number"
-                    value={sheetMaxHeightMm}
-                    onChange={(e) => setSheetMaxHeightMm(e.target.value)}
-                    placeholder="—"
-                  />
-                </div>
-                <div className="col">
-                  <label className="subtle">Roll max width (mm)</label>
-                  <input
-                    type="number"
-                    value={rollMaxWidthMm}
-                    onChange={(e) => setRollMaxWidthMm(e.target.value)}
-                    placeholder="—"
-                  />
-                </div>
-              </div>
+              (() => {
+                const showSheet = process === "uv_flatbed" || (category === "printer_sheet" && process !== "eco_solvent_roll" && process !== "eco_roll" && process !== "latex_roll");
+                const showRoll = process === "eco_solvent_roll" || process === "eco_roll" || process === "latex_roll";
+                const showProduction = category !== "cutter" && (process === "uv_flatbed" || process === "eco_solvent_roll" || process === "eco_roll" || process === "latex_roll" || category === "printer_sheet" || category === "printer_roll");
+                const showInk = showProduction;
+                const speed = parseFloat(speedSqmPerHour);
+                const cov = parseFloat(defaultCoveragePct);
+                const inkMl = parseFloat(inkMlPerSqm100pct);
+                const inkCost = parseFloat(inkCostPerLitreGbp);
+                const inkGbpPerSqm = (inkMl * (cov / 100) / 1000) * inkCost;
+                const hasInkHelper = !isNaN(cov) && !isNaN(inkMl) && !isNaN(inkCost) && cov > 0 && inkMl > 0 && inkCost > 0;
+                return (
+                  <div className="capabilities-grid">
+                    {(showSheet || showRoll) && (
+                      <div className="capability-panel">
+                        <div className="capability-panel-title">Size limits</div>
+                        {showSheet && (
+                          <>
+                            <div className="capability-field">
+                              <label className="subtle">sheet_max_width_mm (mm)</label>
+                              <input
+                                type="number"
+                                value={sheetMaxWidthMm}
+                                onChange={(e) => setSheetMaxWidthMm(e.target.value)}
+                                placeholder="—"
+                              />
+                            </div>
+                            <div className="capability-field">
+                              <label className="subtle">sheet_max_height_mm (mm)</label>
+                              <input
+                                type="number"
+                                value={sheetMaxHeightMm}
+                                onChange={(e) => setSheetMaxHeightMm(e.target.value)}
+                                placeholder="—"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {showRoll && (
+                          <div className="capability-field">
+                            <label className="subtle">roll_max_width_mm (mm)</label>
+                            <input
+                              type="number"
+                              value={rollMaxWidthMm}
+                              onChange={(e) => setRollMaxWidthMm(e.target.value)}
+                              placeholder="—"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {showProduction && (
+                      <div className="capability-panel">
+                        <div className="capability-panel-title">Production model</div>
+                        <div className="capability-field">
+                          <label className="subtle">speed_sqm_per_hour (sqm/hr)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={speedSqmPerHour}
+                            onChange={(e) => setSpeedSqmPerHour(e.target.value)}
+                            placeholder="—"
+                          />
+                          {speed > 0 && (
+                            <div className="capability-helper">
+                              ≈ {(60 / speed).toFixed(1)} min / sqm
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {showInk && (
+                      <div className="capability-panel">
+                        <div className="capability-panel-title">Ink model</div>
+                        <div className="capability-field">
+                          <label className="subtle">default_coverage_pct (%)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            value={defaultCoveragePct}
+                            onChange={(e) => setDefaultCoveragePct(e.target.value)}
+                            placeholder="—"
+                          />
+                        </div>
+                        <div className="capability-field">
+                          <label className="subtle">ink_ml_per_sqm_100pct (ml)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={inkMlPerSqm100pct}
+                            onChange={(e) => setInkMlPerSqm100pct(e.target.value)}
+                            placeholder="—"
+                          />
+                        </div>
+                        <div className="capability-field">
+                          <label className="subtle">ink_cost_per_litre_gbp (£)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={inkCostPerLitreGbp}
+                            onChange={(e) => setInkCostPerLitreGbp(e.target.value)}
+                            placeholder="—"
+                          />
+                        </div>
+                        {hasInkHelper && (
+                          <div className="capability-helper">
+                            Ink ≈ £{inkGbpPerSqm.toFixed(2)} / sqm @ {cov}%
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             ) : (
-              <textarea
-                rows={6}
-                value={metaJson}
-                onChange={(e) => setMetaJson(e.target.value)}
-                style={{ fontFamily: "monospace", fontSize: 12, width: "100%" }}
-              />
+              <>
+                <textarea
+                  rows={6}
+                  value={metaJson}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setMetaJson(v);
+                    if (!v.trim()) {
+                      setMetaJsonError(null);
+                      return;
+                    }
+                    try {
+                      const parsed = JSON.parse(v);
+                      if (parsed !== null && typeof parsed !== "object") {
+                        setMetaJsonError("Meta must be a JSON object");
+                      } else {
+                        setMetaJsonError(null);
+                      }
+                    } catch (err) {
+                      setMetaJsonError(err instanceof SyntaxError ? err.message : "Invalid JSON");
+                    }
+                  }}
+                  style={{ fontFamily: "monospace", fontSize: 12, width: "100%", borderColor: metaJsonError ? "#c00" : undefined }}
+                  placeholder='{"sheet_max_width_mm": 3200, ...}'
+                />
+                {metaJsonError && (
+                  <div style={{ color: "#c00", fontSize: 12, marginTop: 6 }}>{metaJsonError}</div>
+                )}
+              </>
             )}
           </div>
 
@@ -689,25 +888,20 @@ export default function AdminMachinesPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 8 }}>
             <div style={{ display: "flex", gap: 10 }}>
               {editing && (
-                <>
-                  <button type="button" onClick={handleToggleActive}>
-                    {editing.active ? "Deactivate" : "Activate"}
+                editing.active ? (
+                  <button type="button" className="danger" onClick={handleDeactivate} title="Deactivate machine (keeps history)">
+                    Deactivate
                   </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={handleDeleteInModal}
-                    disabled={rates.length > 0}
-                    title={rates.length > 0 ? "Remove all rates first or deactivate" : "Delete machine"}
-                  >
-                    Delete
+                ) : (
+                  <button type="button" onClick={handleToggleActive} title="Reactivate machine">
+                    Activate
                   </button>
-                </>
+                )
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button type="button" onClick={() => machineModalRequestCloseRef.current?.()}>Cancel</button>
-              <button type="button" className="primary" onClick={saveMachine} disabled={!name.trim()}>
+              <button type="button" className="primary" onClick={saveMachine} disabled={!name.trim() || (metaAdvanced && !!metaJsonError)}>
                 {editing ? "Save" : "Create"}
               </button>
             </div>

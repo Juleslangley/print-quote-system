@@ -6,14 +6,22 @@ from app.models.machine_rate import MachineRate
 from app.models.base import new_id
 from app.schemas.machine import MachineCreate, MachineUpdate, MachineOut, MachineReorderIn
 from app.schemas.machine_rate import MachineRateOut
+from app.api.deps import get_current_user
 from app.api.permissions import require_admin, require_sales
 
 router = APIRouter()
 
 
 @router.get("/machines", response_model=list[MachineOut])
-def list_machines(db: Session = Depends(get_db), _=Depends(require_sales)):
-    return db.query(Machine).order_by(Machine.sort_order.asc(), Machine.name.asc()).all()
+def list_machines(
+    db: Session = Depends(get_db),
+    user=Depends(require_sales),
+    include_inactive: bool = Query(False, description="Include inactive machines (admin only)"),
+):
+    q = db.query(Machine).order_by(Machine.sort_order.asc(), Machine.name.asc())
+    if not include_inactive or user.role != "admin":
+        q = q.filter(Machine.active == True)
+    return q.all()
 
 
 @router.get("/machines/{machine_id}", response_model=MachineOut)
@@ -48,7 +56,16 @@ def update_machine(
         if other:
             raise HTTPException(status_code=400, detail="Another machine with this name already exists")
     for k, v in data.items():
-        setattr(m, k, v)
+        if k == "meta" and v is not None:
+            existing = m.meta or {}
+            merged = {**existing, **v}
+            setattr(m, k, merged)
+        elif k == "config" and v is not None:
+            existing = getattr(m, "config", None) or {}
+            merged = {**existing, **v}
+            setattr(m, k, merged)
+        else:
+            setattr(m, k, v)
     db.add(m)
     db.commit()
     db.refresh(m)
@@ -57,19 +74,14 @@ def update_machine(
 
 @router.delete("/machines/{machine_id}")
 def delete_machine(machine_id: str, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Soft-deactivate: set active=false. Never hard-deletes to preserve FK history."""
     m = db.query(Machine).filter(Machine.id == machine_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="Machine not found")
-    rate_count = db.query(MachineRate).filter(MachineRate.machine_id == machine_id).count()
-    if rate_count > 0:
-        # Soft-delete: set active=false instead of hard delete
-        m.active = False
-        db.add(m)
-        db.commit()
-        return {"ok": True, "deactivated": True, "message": "Machine has rates; deactivated instead of deleted"}
-    db.delete(m)
+    m.active = False
+    db.add(m)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "deactivated": True}
 
 
 @router.post("/machines/reorder")

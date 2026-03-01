@@ -19,7 +19,12 @@ def create_job_endpoint(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    job_id, job_no = create_job(db, customer_id=payload.customer_id, title=payload.title)
+    job_id, job_no = create_job(
+        db,
+        customer_id=payload.customer_id,
+        title=payload.title,
+        job_type=payload.job_type,
+    )
     db.commit()
     return {"id": job_id, "job_no": job_no}
 

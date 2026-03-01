@@ -430,7 +430,7 @@ def test_preview_without_entity_id_uses_mock_context(db_session, app_with_auth_b
 
 
 def test_preview_prefers_template_html_when_both_provided(app_with_auth_bypass):
-    """template_html non-empty + content non-empty -> renders template_html, not content."""
+    """purchase_order preview ignores payload template_html/content and uses hardwired premium template."""
     client = TestClient(app_with_auth_bypass)
     res = client.post(
         "/api/document-templates/preview",
@@ -441,9 +441,9 @@ def test_preview_prefers_template_html_when_both_provided(app_with_auth_bypass):
         },
     )
     assert res.status_code == 200
-    assert "FROM_HTML" in res.text
+    assert "FROM_HTML" not in res.text
     assert "FROM_CONTENT" not in res.text
-    assert "PO012345" in res.text
+    assert "Purchase Order" in res.text
 
 
 def test_ensure_single_po_lines_placeholder_removes_duplicates():
@@ -747,7 +747,7 @@ def test_preview_data_jinja_block_produces_one_table_and_line_descriptions(
     assert res.status_code == 200, res.text
     html = res.text
 
-    assert html.count("po-lines") == 1, "Exactly one po-lines table"
+    assert html.count('<table class="po-lines">') == 1, "Exactly one po-lines table"
     assert "Test product A" in html
     assert "3" in html
     assert "true" not in html, "No literal 'true' in output"

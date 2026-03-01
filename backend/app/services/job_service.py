@@ -7,6 +7,7 @@ from app.models.base import new_id
 from app.models.job import Job
 from app.models.job_no_sequence import JobNoSequence
 from app.core.config import settings
+from app.services.job_routing import normalize_job_type
 
 
 SEQUENCE_NAME = "default"
@@ -30,6 +31,7 @@ def create_job(
     db: Session,
     customer_id: Optional[str] = None,
     title: Optional[str] = None,
+    job_type: Optional[str] = None,
 ) -> tuple[str, str]:
     """Create a job and return (job_id, job_no)."""
     job_no = generate_job_no(db)
@@ -40,6 +42,7 @@ def create_job(
         customer_id=customer_id,
         title=title or "",
         status="open",
+        job_type=normalize_job_type(job_type),
     )
     db.add(job)
     db.flush()

@@ -1,11 +1,14 @@
 # Import all models so Base.metadata is complete (for Alembic autogenerate and ORM).
 from .user import User
 from .customer import Customer
+from .customer_contact import CustomerContact
 from .material import Material
 from .supplier import Supplier
 from .rate import Rate
 from .template import ProductTemplate
 from .quote import Quote, QuoteItem
+from .quote_part import QuotePart
+from .quote_price_snapshot import QuotePriceSnapshot
 from .machine import Machine
 from .operation import Operation
 from .template_links import TemplateOperation, TemplateAllowedMaterial

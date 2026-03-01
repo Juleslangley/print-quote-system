@@ -10,6 +10,9 @@ class Quote(Base, TimestampMixin):
     quote_number: Mapped[str] = mapped_column(String, unique=True, index=True)
     job_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True)
     customer_id: Mapped[str] = mapped_column(String, ForeignKey("customers.id"))
+    # MIS-style: default_job_type for UI when adding parts (optional); name for display
+    default_job_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(256), default="")
     contact_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("customer_contacts.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String, default="draft")
     pricing_version: Mapped[str] = mapped_column(String)

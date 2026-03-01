@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 
-type Job = { id: string; job_no: string; title: string; status: string };
+const JOB_TYPE_OPTIONS = [
+  { value: "LARGE_FORMAT_SHEET", label: "Large Format sheet" },
+  { value: "LARGE_FORMAT_ROLL", label: "Large Format Roll" },
+  { value: "LITHO_SHEET", label: "Litho sheet" },
+  { value: "DIGITAL_SHEET", label: "Digital sheet" },
+] as const;
+
+type Job = { id: string; job_no: string; title: string; status: string; job_type?: string };
 type Batch = { id: string; job_id: string; name: string };
 
 export default function AdminPackingPage() {
@@ -13,6 +20,7 @@ export default function AdminPackingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [createJobTitle, setCreateJobTitle] = useState("");
+  const [createJobType, setCreateJobType] = useState<string>("LARGE_FORMAT_SHEET");
   const [createBatchJobId, setCreateBatchJobId] = useState("");
   const [createBatchName, setCreateBatchName] = useState("");
   const [uploadBatchId, setUploadBatchId] = useState("");
@@ -37,9 +45,9 @@ export default function AdminPackingPage() {
     try {
       const res = await api<{ id: string; job_no: string }>("/api/jobs", {
         method: "POST",
-        body: JSON.stringify({ title: createJobTitle || undefined }),
+        body: JSON.stringify({ title: createJobTitle || undefined, job_type: createJobType }),
       });
-      setJobs((prev) => [...prev, { id: res.id, job_no: res.job_no, title: createJobTitle, status: "open" }]);
+      setJobs((prev) => [...prev, { id: res.id, job_no: res.job_no, title: createJobTitle, status: "open", job_type: createJobType }]);
       setCreateJobTitle("");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -110,10 +118,24 @@ export default function AdminPackingPage() {
             onChange={(e) => setCreateJobTitle(e.target.value)}
             style={{ padding: 8, width: 200 }}
           />
+          <select
+            value={createJobType}
+            onChange={(e) => setCreateJobType(e.target.value)}
+            style={{ padding: 8, minWidth: 200 }}
+          >
+            {JOB_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
           <button type="button" onClick={handleCreateJob} style={{ padding: "8px 16px" }}>
             Create job
           </button>
         </div>
+        <p className="subtle" style={{ marginTop: 8 }}>
+          Changing Job Type updates defaults for waste/setup and routing. Existing overrides are kept.
+        </p>
       </section>
 
       <section style={{ marginBottom: 32 }}>

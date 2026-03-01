@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, attributes
 from app.core.db import get_db
 from app.models.material import Material
@@ -11,6 +12,7 @@ from app.models.base import new_id
 from app.schemas.material import MaterialCreate, MaterialUpdate, MaterialOut
 from app.schemas.material_size import MaterialSizeOut
 from app.api.permissions import require_sales, require_prod_or_better, require_admin
+from app.services.job_routing import normalize_job_type, ALL_JOB_TYPES
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,9 +28,58 @@ def _sync_material_supplier(mat: Material, db: Session) -> None:
         mat.supplier = ""
 
 
+def _get_allowed_job_types_from_meta(mat: Material) -> list[str]:
+    raw = (mat.meta or {}).get("allowed_job_types")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for jt in raw:
+        if isinstance(jt, str):
+            normalized = normalize_job_type(jt)
+            if normalized in ALL_JOB_TYPES and normalized not in out:
+                out.append(normalized)
+    return out
+
+
+def _set_allowed_job_types_in_meta(mat: Material, values: list[str] | None) -> None:
+    meta = dict(mat.meta or {})
+    normalized_values: list[str] = []
+    for jt in values or []:
+        if not isinstance(jt, str):
+            continue
+        normalized = normalize_job_type(jt)
+        if normalized in ALL_JOB_TYPES and normalized not in normalized_values:
+            normalized_values.append(normalized)
+    if normalized_values:
+        meta["allowed_job_types"] = normalized_values
+    else:
+        meta.pop("allowed_job_types", None)
+    mat.meta = meta
+    attributes.flag_modified(mat, "meta")
+
+
+def _attach_allowed_job_types_view(mat: Material) -> Material:
+    # Existing materials use meta JSON; expose a computed field for API consumers.
+    setattr(mat, "allowed_job_types", _get_allowed_job_types_from_meta(mat))
+    return mat
+
+
 @router.get("/materials", response_model=list[MaterialOut])
-def list_materials(db: Session = Depends(get_db), _=Depends(require_sales)):
-    return db.query(Material).order_by(Material.name.asc()).all()
+def list_materials(
+    job_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _=Depends(require_sales),
+):
+    mats = db.query(Material).order_by(Material.name.asc()).all()
+    if job_type:
+        target_job_type = normalize_job_type(job_type)
+        def _allows_job_type(m: Material) -> bool:
+            allowed = _get_allowed_job_types_from_meta(m)
+            if not allowed:
+                return True  # no restriction = allow all
+            return target_job_type in allowed
+        mats = [m for m in mats if _allows_job_type(m)]
+    return [_attach_allowed_job_types_view(m) for m in mats]
 
 @router.get("/materials/{material_id}/usage")
 def material_usage(material_id: str, db: Session = Depends(get_db), _=Depends(require_sales)):
@@ -82,7 +133,7 @@ def get_material(material_id: str, db: Session = Depends(get_db), _=Depends(requ
     m = db.query(Material).filter(Material.id == material_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="Material not found")
-    return m
+    return _attach_allowed_job_types_view(m)
 
 
 @router.get("/materials/{material_id}/sizes", response_model=list[MaterialSizeOut])
@@ -104,17 +155,18 @@ def list_material_sizes(material_id: str, db: Session = Depends(get_db), _=Depen
 
 @router.post("/materials", response_model=MaterialOut)
 def create_material(payload: MaterialCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    data = payload.model_dump(exclude={"supplier"})
+    data = payload.model_dump(exclude={"supplier", "allowed_job_types"})
     m = Material(id=new_id(), **data)
     if payload.supplier_id:
         sup = db.query(Supplier).filter(Supplier.id == payload.supplier_id).first()
         if not sup:
             raise HTTPException(status_code=400, detail="Invalid supplier_id")
     _sync_material_supplier(m, db)
+    _set_allowed_job_types_in_meta(m, payload.allowed_job_types)
     db.add(m)
     db.commit()
     db.refresh(m)
-    return m
+    return _attach_allowed_job_types_view(m)
 
 @router.put("/materials/{material_id}", response_model=MaterialOut)
 def update_material(material_id: str, payload: MaterialUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
@@ -126,18 +178,21 @@ def update_material(material_id: str, payload: MaterialUpdate, db: Session = Dep
         sup = db.query(Supplier).filter(Supplier.id == data["supplier_id"]).first()
         if not sup:
             raise HTTPException(status_code=400, detail="Invalid supplier_id")
+    allowed_job_types_update = data.pop("allowed_job_types", None)
     for k, v in data.items():
         if k == "supplier":
             continue
         setattr(m, k, v)
         if k == "meta" and v is not None:
             attributes.flag_modified(m, "meta")
+    if allowed_job_types_update is not None:
+        _set_allowed_job_types_in_meta(m, allowed_job_types_update)
     if "supplier_id" in data:
         _sync_material_supplier(m, db)
     db.add(m)
     db.commit()
     db.refresh(m)
-    return m
+    return _attach_allowed_job_types_view(m)
 
 @router.delete("/materials/{material_id}")
 def delete_material(material_id: str, db: Session = Depends(get_db), _=Depends(require_admin)):

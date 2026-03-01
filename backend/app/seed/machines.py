@@ -63,7 +63,11 @@ def seed_machines(db):
             "sheet_max_width_mm": 3200,
             "sheet_max_height_mm": 2000,
             "supports_white": True,
-            "ink_family": "UV"
+            "ink_family": "UV",
+            "speed_sqm_per_hour": 55,
+            "ink_cost_per_litre_gbp": 45,
+            "ink_ml_per_sqm_100pct": 12,
+            "default_coverage_pct": 18,
         }
     )
 
@@ -93,7 +97,7 @@ def seed_machines(db):
         "Fujifilm Acuity Prime",
         category="printer_sheet",
         process="uv_flatbed",
-        active=True,
+        active=False,  # Deactivated: removed from default routing; kept for history
         sort_order=20,
         notes="UV flatbed sheet printer",
         meta={
@@ -114,7 +118,47 @@ def seed_machines(db):
     )
 
     # -----------------------------
-    # HP SC 8600 (EcoSolvent 1600)
+    # Epson SureColor (EcoSolvent Roll)
+    # -----------------------------
+    epson = upsert_machine(
+        db,
+        "Epson SureColor",
+        category="printer_roll",
+        process="eco_solvent_roll",
+        active=True,
+        sort_order=25,
+        notes="Eco-solvent roll printer",
+        meta={
+            "roll_max_width_mm": 1600,
+            "ink_family": "EcoSolvent",
+            "min_lm_billable_default": 1.0,
+            "speed_sqm_per_hour": 18,
+            "ink_cost_per_litre_gbp": 120,
+            "ink_ml_per_sqm_100pct": 10,
+            "default_coverage_pct": 15,
+        }
+    )
+
+    upsert_rate(db, epson, "print_sqm", "sqm",
+        cost_per_unit_gbp=1.85,
+        setup_minutes=10,
+        setup_cost_gbp=0,
+        min_charge_gbp=15,
+        active=True,
+        sort_order=10
+    )
+
+    upsert_rate(db, epson, "laminate_sqm", "sqm",
+        cost_per_unit_gbp=0.90,
+        setup_minutes=5,
+        setup_cost_gbp=0,
+        min_charge_gbp=10,
+        active=True,
+        sort_order=20
+    )
+
+    # -----------------------------
+    # HP SC 8600 (EcoSolvent 1600) - kept for history
     # -----------------------------
     hp = upsert_machine(
         db,

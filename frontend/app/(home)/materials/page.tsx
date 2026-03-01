@@ -6,6 +6,12 @@ import { api, ApiError, clearToken } from "@/lib/api";
 import Modal from "../../_components/Modal";
 
 type Material = any;
+const JOB_TYPE_OPTIONS = [
+  { value: "LARGE_FORMAT_SHEET", label: "Large Format sheet" },
+  { value: "LARGE_FORMAT_ROLL", label: "Large Format Roll" },
+  { value: "LITHO_SHEET", label: "Litho sheet" },
+  { value: "DIGITAL_SHEET", label: "Digital sheet" },
+] as const;
 
 type MaterialSize = {
   id: string;
@@ -55,6 +61,7 @@ export default function MaterialsPage() {
   const [supplierStr, setSupplierStr] = useState("");
   const [wastePct, setWastePct] = useState(0.05);
   const [active, setActive] = useState(true);
+  const [allowedJobTypes, setAllowedJobTypes] = useState<string[]>([]);
   const [meta, setMeta] = useState<Record<string, any>>({});
   const [cutterTools, setCutterTools] = useState<CutterToolEntry[]>([]);
   const [editAdvancedMeta, setEditAdvancedMeta] = useState(false);
@@ -192,6 +199,7 @@ export default function MaterialsPage() {
     setSupplierStr(suppliers.length ? suppliers[0].name : "");
     setWastePct(0.05);
     setActive(true);
+    setAllowedJobTypes([]);
     setMeta({});
     setCutterTools([]);
     setEditAdvancedMeta(false);
@@ -217,6 +225,9 @@ export default function MaterialsPage() {
     setSupplierStr(sup ? sup.name : m.supplier || "");
     setWastePct(num(m.waste_pct_default, 0.05));
     setActive(!!m.active);
+    const fromField = Array.isArray((m as any).allowed_job_types) ? (m as any).allowed_job_types : [];
+    const fromMeta = Array.isArray((m.meta || {}).allowed_job_types) ? (m.meta || {}).allowed_job_types : [];
+    setAllowedJobTypes((fromField.length ? fromField : fromMeta).filter((v: any) => typeof v === "string"));
     setMeta(m.meta && typeof m.meta === "object" ? { ...m.meta } : {});
     const rawMeta = m.meta && typeof m.meta === "object" ? (m.meta as any) : {};
     const rawTools = rawMeta.cutter_tools;
@@ -255,6 +266,16 @@ export default function MaterialsPage() {
       if (supplierStr !== prevSupplierStr) return true;
       if (num(wastePct) !== num(editing.waste_pct_default, 0.05)) return true;
       if (active !== !!editing.active) return true;
+      const prevAllowed = (
+        Array.isArray((editing as any).allowed_job_types)
+          ? (editing as any).allowed_job_types
+          : Array.isArray((editing.meta || {}).allowed_job_types)
+            ? (editing.meta || {}).allowed_job_types
+            : []
+      ).filter((v: any) => typeof v === "string");
+      const a = [...allowedJobTypes].sort().join("|");
+      const b = [...prevAllowed].sort().join("|");
+      if (a !== b) return true;
       const rawMeta = editing.meta && typeof editing.meta === "object" ? (editing.meta as any) : {};
       const prevTools = rawMeta.cutter_tools;
       const prevArr = Array.isArray(prevTools) && prevTools.length > 0
@@ -441,6 +462,7 @@ export default function MaterialsPage() {
         supplier_id: supplierId || null,
         supplier: supplierStr || "",
         active,
+        allowed_job_types: allowedJobTypes,
         waste_pct_default: wastePct,
         meta: metaToSend,
       };
@@ -703,6 +725,15 @@ export default function MaterialsPage() {
                     )}
                     {m.supplier_product_code && (
                       <div className="subtle" style={{ fontSize: 12, marginTop: 2 }}>{m.supplier_product_code}</div>
+                    )}
+                    {Array.isArray((m.allowed_job_types ?? m.meta?.allowed_job_types)) && (m.allowed_job_types ?? m.meta?.allowed_job_types).length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                        {(m.allowed_job_types ?? m.meta?.allowed_job_types).map((jt: string) => (
+                          <span key={jt} className="subtle" style={{ fontSize: 11, border: "1px solid #ddd", borderRadius: 999, padding: "1px 8px" }}>
+                            {JOB_TYPE_OPTIONS.find((o) => o.value === jt)?.label ?? jt}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </td>
                   <td style={{ padding: "12px 10px" }}>{resolveSupplierName(m)}</td>
@@ -1086,6 +1117,26 @@ export default function MaterialsPage() {
                   <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
                   Active
                 </label>
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label className="subtle" style={{ display: "block", marginBottom: 6 }}>Allowed Job Types</label>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {JOB_TYPE_OPTIONS.map((opt) => (
+                  <label key={opt.value} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={allowedJobTypes.includes(opt.value)}
+                      onChange={(e) => {
+                        setAllowedJobTypes((prev) => {
+                          if (e.target.checked) return Array.from(new Set([...prev, opt.value]));
+                          return prev.filter((v) => v !== opt.value);
+                        });
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
               </div>
             </div>
           </div>

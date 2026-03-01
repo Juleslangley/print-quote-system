@@ -128,7 +128,7 @@ export default function PurchaseOrderDetailPage() {
     loadPO();
     loadLines();
     loadSuppliers();
-    api<Material[]>("/api/materials")
+    api<Material[]>("/api/materials?job_type=LARGE_FORMAT_SHEET")
       .then((arr) => {
         const map: Record<string, Material> = {};
         (arr || []).forEach((m) => { map[m.id] = m; });
@@ -191,7 +191,7 @@ export default function PurchaseOrderDetailPage() {
       return;
     }
     let cancelled = false;
-    api<Material[]>("/api/materials")
+    api<Material[]>("/api/materials?job_type=LARGE_FORMAT_SHEET")
       .then((arr) => {
         if (cancelled) return;
         const q = materialSearch.trim().toLowerCase();

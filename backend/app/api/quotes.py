@@ -5,20 +5,60 @@ from app.core.db import get_db
 from app.core.config import settings
 from app.models.base import new_id
 from app.models.quote import Quote, QuoteItem
+from app.models.quote_part import QuotePart
+from app.models.quote_price_snapshot import QuotePriceSnapshot
 from app.models.customer import Customer
 from app.models.template import ProductTemplate
 from app.models.material import Material
 from app.models.material_size import MaterialSize
 from app.models.machine import Machine
+from app.models.job import Job
 from app.models.rate import Rate
 from app.models.operation import Operation
 from app.models.template_links import TemplateOperation
-from app.schemas.quote import QuoteCreate, QuoteOut, QuoteItemCreate, QuoteItemOut, QuoteUpdateCommercial, QuoteItemCommercialUpdate
+from app.schemas.quote import (
+    QuoteCreate,
+    QuoteOut,
+    QuotePatch,
+    QuoteItemCreate,
+    QuoteItemOut,
+    QuoteUpdateCommercial,
+    QuoteItemCommercialUpdate,
+)
 from app.api.deps import get_current_user
 from app.api.permissions import require_admin, require_sales, require_prod_or_better
 from app.pricing.engine import calculate_item, price_item_with_policy
+from app.services.job_routing import (
+    JobType,
+    apply_defaults_to_item_options,
+    get_jobtype_defaults,
+    normalize_job_type,
+)
+from app.services.mis_pricing import price_quote
 
 router = APIRouter()
+
+
+def _resolve_quote_job_type(db: Session, q: Quote) -> str:
+    # Discovery note: Quote already links to Job via quote.job_id, so routing is derived from Job.
+    if q.job_id:
+        job = db.query(Job).filter(Job.id == q.job_id).first()
+        if job and getattr(job, "job_type", None):
+            return normalize_job_type(job.job_type)
+    return JobType.LARGE_FORMAT_SHEET
+
+
+def _apply_setup_minutes_override(item_rates: dict, options: dict) -> None:
+    setup_minutes = options.get("setup_minutes")
+    if setup_minutes is None:
+        return
+    try:
+        setup_minutes_val = float(setup_minutes)
+    except (TypeError, ValueError):
+        return
+    for rate_type in ("print_flatbed", "print_roll"):
+        if rate_type in item_rates:
+            item_rates[rate_type]["setup_minutes"] = setup_minutes_val
 
 
 def _material_for_pricing(m: Material, db: Session) -> dict:
@@ -71,8 +111,12 @@ def create_quote(payload: QuoteCreate, db: Session = Depends(get_db), _=Depends(
         subtotal_sell=0.0,
         vat=0.0,
         total_sell=0.0,
+        name=payload.name or "",
+        default_job_type=payload.default_job_type,
     )
-    db.add(q); db.commit(); db.refresh(q)
+    db.add(q)
+    db.commit()
+    db.refresh(q)
     return q
 
 @router.get("/quotes/{quote_id}", response_model=QuoteOut)
@@ -82,17 +126,47 @@ def get_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require_pr
         raise HTTPException(status_code=404, detail="Quote not found")
     return q
 
+def _auto_unlock_if_priced(db: Session, quote_id: str) -> None:
+    """If quote status is priced, set to draft. Snapshots are never deleted."""
+    q = db.query(Quote).filter(Quote.id == quote_id).first()
+    if q and q.status and str(q.status).lower() == "priced":
+        q.status = "draft"
+        db.add(q)
+
+
+@router.patch("/quotes/{quote_id}", response_model=QuoteOut)
+def patch_quote(
+    quote_id: str,
+    payload: QuotePatch,
+    db: Session = Depends(get_db),
+    _=Depends(require_sales),
+):
+    """PATCH quote. AUTO-UNLOCK: if PRICED and any change, set status to DRAFT."""
+    q = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    _auto_unlock_if_priced(db, quote_id)
+    data = payload.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(q, k, v)
+    db.add(q)
+    db.commit()
+    db.refresh(q)
+    return q
+
+
 @router.put("/quotes/{quote_id}/commercial", response_model=QuoteOut)
 def update_quote_commercial(quote_id: str, payload: QuoteUpdateCommercial, db: Session = Depends(get_db), _=Depends(require_sales)):
     q = db.query(Quote).filter(Quote.id == quote_id).first()
     if not q:
         raise HTTPException(status_code=404, detail="Quote not found")
-
+    _auto_unlock_if_priced(db, quote_id)
     data = payload.model_dump(exclude_unset=True)
     for k, v in data.items():
         setattr(q, k, v)
-
-    db.add(q); db.commit(); db.refresh(q)
+    db.add(q)
+    db.commit()
+    db.refresh(q)
     return q
 
 @router.put("/quote-items/{item_id}/commercial", response_model=QuoteItemOut)
@@ -138,6 +212,10 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
         r.rate_type: {"setup_minutes": r.setup_minutes, "hourly_cost_gbp": r.hourly_cost_gbp, "run_speed": r.run_speed or {}}
         for r in rates
     }
+    job_type = _resolve_quote_job_type(db, q)
+    routing_defaults = get_jobtype_defaults(job_type)
+    job_type = _resolve_quote_job_type(db, q)
+    routing_defaults = get_jobtype_defaults(job_type)
 
     # Cutter machine for tool speeds (used per material)
     cutter_machine = (
@@ -172,6 +250,10 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
                     for rtype in ("cut_knife", "cut_router"):
                         if rtype in item_rates:
                             item_rates[rtype]["run_speed"] = run_speed_override
+
+        # Keep existing explicit options, only fill missing defaults from job routing.
+        options_for_calc = apply_defaults_to_item_options(item.options or {}, job_type)
+        _apply_setup_minutes_override(item_rates, options_for_calc)
 
         # Build finish_blocks from DB (TemplateOperation + Operation) or fall back to template rules
         links = (
@@ -219,8 +301,23 @@ def recalc_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require
                 "width_mm": item.width_mm,
                 "height_mm": item.height_mm,
                 "sides": item.sides,
-                "options": item.options,
+                "options": options_for_calc,
             },
+        )
+        calc.setdefault("snapshot", {}).setdefault("routing", {})
+        calc["snapshot"]["routing"].update(
+            {
+                "job_type": job_type,
+                "lane_effective": routing_defaults["lane"],
+                "material_mode": routing_defaults["material_mode"],
+                "machine_key_effective": routing_defaults["default_machine_key"],
+                "effective_waste_pct": options_for_calc.get("waste_pct"),
+                "effective_setup_minutes": options_for_calc.get("setup_minutes"),
+                "material_mode_matches_selected_material": (
+                    (routing_defaults["material_mode"] == "ROLL" and m.type == "roll")
+                    or (routing_defaults["material_mode"] == "SHEET" and m.type == "sheet")
+                ),
+            }
         )
 
         item.cost_total = calc["cost_total"]
@@ -297,6 +394,12 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
                     if rtype in item_rates:
                         item_rates[rtype]["run_speed"] = run_speed_override
 
+    job_type = _resolve_quote_job_type(db, q)
+    routing_defaults = get_jobtype_defaults(job_type)
+    payload_data = payload.model_dump()
+    payload_data["options"] = apply_defaults_to_item_options(payload_data.get("options") or {}, job_type)
+    _apply_setup_minutes_override(item_rates, payload_data["options"])
+
     # Build finish_blocks from DB (TemplateOperation + Operation) or fall back to template rules
     template_ops = (
         db.query(TemplateOperation)
@@ -328,7 +431,22 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
         template=template_payload,
         material=material_dict,
         rates_by_type=item_rates,
-        item_input=payload.model_dump(),
+        item_input=payload_data,
+    )
+    calc.setdefault("snapshot", {}).setdefault("routing", {})
+    calc["snapshot"]["routing"].update(
+        {
+            "job_type": job_type,
+            "lane_effective": routing_defaults["lane"],
+            "material_mode": routing_defaults["material_mode"],
+            "machine_key_effective": routing_defaults["default_machine_key"],
+            "effective_waste_pct": payload_data["options"].get("waste_pct"),
+            "effective_setup_minutes": payload_data["options"].get("setup_minutes"),
+            "material_mode_matches_selected_material": (
+                (routing_defaults["material_mode"] == "ROLL" and m.type == "roll")
+                or (routing_defaults["material_mode"] == "SHEET" and m.type == "sheet")
+            ),
+        }
     )
 
     cust = db.query(Customer).filter(Customer.id == q.customer_id).first()
@@ -340,12 +458,12 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
         id=new_id(),
         quote_id=q.id,
         template_id=t.id,
-        title=payload.title,
-        qty=payload.qty,
-        width_mm=payload.width_mm,
-        height_mm=payload.height_mm,
-        sides=payload.sides,
-        options=payload.options,
+        title=payload_data["title"],
+        qty=payload_data["qty"],
+        width_mm=payload_data["width_mm"],
+        height_mm=payload_data["height_mm"],
+        sides=payload_data.get("sides", 1),
+        options=payload_data.get("options", {}),
         cost_total=calc["cost_total"],
         sell_total=0.0,
         margin_pct=0.0,
@@ -384,3 +502,88 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
     db.add(q); db.commit()
 
     return item
+
+
+# --- MIS-style pricing & lock ---
+
+@router.get("/quotes/{quote_id}/latest-snapshot")
+def get_latest_snapshot(quote_id: str, db: Session = Depends(get_db), _=Depends(require_sales)):
+    """Return latest QuotePriceSnapshot for display (revision, timestamp, input_hash)."""
+    latest = (
+        db.query(QuotePriceSnapshot)
+        .filter(QuotePriceSnapshot.quote_id == quote_id)
+        .order_by(QuotePriceSnapshot.revision.desc())
+        .first()
+    )
+    if not latest:
+        return None
+    return {
+        "id": latest.id,
+        "revision": latest.revision,
+        "pricing_version": latest.pricing_version,
+        "input_hash": latest.input_hash,
+        "created_at": latest.created_at.isoformat() if hasattr(latest.created_at, "isoformat") else str(latest.created_at),
+    }
+
+
+@router.post("/quotes/{quote_id}/price")
+def post_quote_price(quote_id: str, db: Session = Depends(get_db), _=Depends(require_sales)):
+    """Price whole quote. Does NOT persist. Returns full QuotePriceResult."""
+    return price_quote(db, quote_id)
+
+
+@router.post("/quotes/{quote_id}/lock-price")
+def lock_quote_price(quote_id: str, db: Session = Depends(get_db), _=Depends(require_sales)):
+    """Lock price. INPUT_HASH no-op: if current hash matches latest snapshot, do NOT create new revision."""
+    q = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    parts = db.query(QuotePart).filter(QuotePart.quote_id == quote_id).all()
+    result = price_quote(db, quote_id)
+    input_hash = result["input_hash"]
+
+    latest = (
+        db.query(QuotePriceSnapshot)
+        .filter(QuotePriceSnapshot.quote_id == quote_id)
+        .order_by(QuotePriceSnapshot.revision.desc())
+        .first()
+    )
+
+    if latest and latest.input_hash == input_hash:
+        return {
+            "created": False,
+            "snapshot": {
+                "id": latest.id,
+                "revision": latest.revision,
+                "pricing_version": latest.pricing_version,
+                "input_hash": latest.input_hash,
+                "created_at": latest.created_at.isoformat() if hasattr(latest.created_at, "isoformat") else str(latest.created_at),
+            },
+            "result": latest.result_json,
+        }
+
+    revision = (latest.revision + 1) if latest else 1
+    snap = QuotePriceSnapshot(
+        id=new_id(),
+        quote_id=quote_id,
+        revision=revision,
+        pricing_version=result["pricing_version"],
+        input_hash=input_hash,
+        result_json=result,
+    )
+    db.add(snap)
+    q.status = "priced"
+    db.add(q)
+    db.commit()
+    db.refresh(snap)
+    return {
+        "created": True,
+        "snapshot": {
+            "id": snap.id,
+            "revision": snap.revision,
+            "pricing_version": snap.pricing_version,
+            "input_hash": snap.input_hash,
+            "created_at": snap.created_at.isoformat() if hasattr(snap.created_at, "isoformat") else str(snap.created_at),
+        },
+        "result": result,
+    }

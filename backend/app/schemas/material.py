@@ -23,6 +23,7 @@ class MaterialCreate(BaseModel):
     waste_pct_default: float = 0.05
     active: bool = True  # for admin toggles
     meta: dict = {}
+    allowed_job_types: Optional[list[str]] = None
 
 
 class MaterialUpdate(BaseModel):
@@ -44,6 +45,7 @@ class MaterialUpdate(BaseModel):
     waste_pct_default: Optional[float] = None
     active: Optional[bool] = None
     meta: Optional[dict] = None
+    allowed_job_types: Optional[list[str]] = None
 
 
 class MaterialOut(BaseModel):
@@ -66,6 +68,7 @@ class MaterialOut(BaseModel):
     waste_pct_default: float
     active: bool
     meta: dict = {}
+    allowed_job_types: list[str] = []
 
     @field_validator("nominal_code", "supplier_product_code", "supplier", mode="before")
     @classmethod

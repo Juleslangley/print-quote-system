@@ -11,7 +11,7 @@ class Machine(Base, TimestampMixin):
     # DB column is "type" (NOT NULL); Python uses "category" for clarity
     category: Mapped[str] = mapped_column("type", String, index=True)  # printer_sheet | printer_roll | cutter | finisher
     process: Mapped[str] = mapped_column(String, default="")  # uv_flatbed | latex_roll | eco_roll | router | knife_cut etc
-    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str] = mapped_column(String, default="")
     config: Mapped[dict] = mapped_column(JSON, default=dict)  # DB legacy NOT NULL; use meta for capability data
