@@ -116,7 +116,11 @@ async function request<T = unknown>(path: string, opts: RequestInit = {}): Promi
   }
 
   const text = await res.text();
-  pushApiLog({ method: (opts.method || "GET").toUpperCase(), url, status: res.status, ts: Date.now() });
+  const method = (opts.method || "GET").toUpperCase();
+  pushApiLog({ method, url, status: res.status, ts: Date.now() });
+  if (res.status === 405) {
+    console.warn("[API 405] Method Not Allowed:", method, url);
+  }
 
   if (!res.ok) {
     let details: unknown;

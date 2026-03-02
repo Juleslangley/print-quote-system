@@ -1,4 +1,5 @@
 import copy
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.db import get_db
@@ -18,6 +19,7 @@ from app.models.operation import Operation
 from app.models.template_links import TemplateOperation
 from app.schemas.quote import (
     QuoteCreate,
+    QuoteListOut,
     QuoteOut,
     QuotePatch,
     QuoteItemCreate,
@@ -25,6 +27,7 @@ from app.schemas.quote import (
     QuoteUpdateCommercial,
     QuoteItemCommercialUpdate,
 )
+from fastapi import Query
 from app.api.deps import get_current_user
 from app.api.permissions import require_admin, require_sales, require_prod_or_better
 from app.pricing.engine import calculate_item, price_item_with_policy
@@ -90,9 +93,12 @@ def _material_for_pricing(m: Material, db: Session) -> dict:
     return base
 
 
-def next_quote_number() -> str:
-    import time
-    return f"Q{int(time.time())}"
+def _next_quote_number(db: Session) -> str:
+    """Get next value from quote_numbers_seq, format as QT0000001."""
+    from sqlalchemy import text
+    r = db.execute(text("SELECT nextval('quote_numbers_seq')")).scalar()
+    return f"QT{r:07d}"
+
 
 @router.post("/quotes", response_model=QuoteOut)
 def create_quote(payload: QuoteCreate, db: Session = Depends(get_db), _=Depends(require_sales)):
@@ -100,9 +106,11 @@ def create_quote(payload: QuoteCreate, db: Session = Depends(get_db), _=Depends(
     if not cust:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    quote_number = _next_quote_number(db)
+
     q = Quote(
         id=new_id(),
-        quote_number=next_quote_number(),
+        quote_number=quote_number,
         customer_id=payload.customer_id,
         contact_id=payload.contact_id,
         status="draft",
@@ -118,6 +126,46 @@ def create_quote(payload: QuoteCreate, db: Session = Depends(get_db), _=Depends(
     db.commit()
     db.refresh(q)
     return q
+
+
+@router.get("/quotes", response_model=list[QuoteListOut])
+def list_quotes(
+    status: Optional[str] = Query(None, description="draft, priced, or locked"),
+    locked: Optional[bool] = Query(None, description="true=priced only, false=draft only"),
+    db: Session = Depends(get_db),
+    _=Depends(require_sales),
+):
+    """List quotes with optional filters. Default order: updated_at desc."""
+    query = db.query(Quote, Customer.name.label("customer_name")).join(
+        Customer, Quote.customer_id == Customer.id
+    )
+    if status:
+        if status.lower() == "locked":
+            query = query.filter(Quote.status == "priced")
+        else:
+            query = query.filter(Quote.status == status.lower())
+    if locked is not None:
+        if locked:
+            query = query.filter(Quote.status == "priced")
+        else:
+            query = query.filter(Quote.status != "priced")
+    query = query.order_by(Quote.updated_at.desc().nullslast())
+    rows = query.all()
+    return [
+        QuoteListOut(
+            id=q.id,
+            quote_number=q.quote_number,
+            name=q.name or None,
+            status=q.status,
+            customer_id=q.customer_id,
+            customer_name=cust_name,
+            total_sell=q.total_sell or 0.0,
+            updated_at=q.updated_at.isoformat() if hasattr(q.updated_at, "isoformat") else str(q.updated_at) if q.updated_at else None,
+            totals_locked=q.totals_locked or False,
+        )
+        for q, cust_name in rows
+    ]
+
 
 @router.get("/quotes/{quote_id}", response_model=QuoteOut)
 def get_quote(quote_id: str, db: Session = Depends(get_db), _=Depends(require_prod_or_better)):
@@ -507,8 +555,13 @@ def add_item(quote_id: str, payload: QuoteItemCreate, db: Session = Depends(get_
 # --- MIS-style pricing & lock ---
 
 @router.get("/quotes/{quote_id}/latest-snapshot")
-def get_latest_snapshot(quote_id: str, db: Session = Depends(get_db), _=Depends(require_sales)):
-    """Return latest QuotePriceSnapshot for display (revision, timestamp, input_hash)."""
+def get_latest_snapshot(
+    quote_id: str,
+    include_result: bool = False,
+    db: Session = Depends(get_db),
+    _=Depends(require_sales),
+):
+    """Return latest QuotePriceSnapshot for display (revision, timestamp, input_hash). With include_result=true, includes result_json."""
     latest = (
         db.query(QuotePriceSnapshot)
         .filter(QuotePriceSnapshot.quote_id == quote_id)
@@ -517,13 +570,16 @@ def get_latest_snapshot(quote_id: str, db: Session = Depends(get_db), _=Depends(
     )
     if not latest:
         return None
-    return {
+    out = {
         "id": latest.id,
         "revision": latest.revision,
         "pricing_version": latest.pricing_version,
         "input_hash": latest.input_hash,
         "created_at": latest.created_at.isoformat() if hasattr(latest.created_at, "isoformat") else str(latest.created_at),
     }
+    if include_result:
+        out["result_json"] = latest.result_json
+    return out
 
 
 @router.post("/quotes/{quote_id}/price")
@@ -573,6 +629,9 @@ def lock_quote_price(quote_id: str, db: Session = Depends(get_db), _=Depends(req
     )
     db.add(snap)
     q.status = "priced"
+    tot = result.get("totals") or {}
+    if tot:
+        q.total_sell = tot.get("total_sell") or 0.0
     db.add(q)
     db.commit()
     db.refresh(snap)
